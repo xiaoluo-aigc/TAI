@@ -319,7 +319,7 @@ body.tanva-premium-black-theme .tanva-brand-logo-wrap {
 }
 
 body.tanva-premium-black-theme .tanva-brand-logo-img {
-  filter: grayscale(1) contrast(1.05);
+  filter: none;
 }
 
 body.tanva-premium-black-theme .tanva-header-divider {

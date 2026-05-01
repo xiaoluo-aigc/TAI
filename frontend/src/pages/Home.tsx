@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import WelcomeShaderBackground from "@/components/background/WelcomeShaderBackground";
 
 // 微信咨询悬浮按钮组件
 const WeChatFloatingButton = () => {
@@ -40,7 +41,7 @@ const WeChatFloatingButton = () => {
       onMouseEnter={() => setIsOpen(true)}
       onMouseLeave={() => setIsOpen(false)}
     >
-      {/* 二维码弹出面板 */}
+      {/* 二维码弹出面�?*/}
       {isOpen && (
         <div className="absolute bottom-16 right-0 p-4 rounded-2xl bg-black/80 backdrop-blur-md border border-white/10 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="flex gap-4">
@@ -99,17 +100,17 @@ export default function Home() {
   const touchStartY = useRef(0);
   const lastScrollTime = useRef(0);
 
-  // 暂时只允许第一页，禁用后两页
+  // 暂时只允许第一页，禁用后两�?
   const maxPage = 0;
 
-  // 首页为公开路由，手动触发一次认证初始化，确保已登录用户回到首页时能实时显示在线状态
+  // 首页为公开路由，手动触发一次认证初始化，确保已登录用户回到首页时能实时显示在线状�?
   useEffect(() => {
     if (authInitRef.current || user || authInitializing) return;
     authInitRef.current = true;
     initAuth().catch(() => {});
   }, [user, authInitializing, initAuth]);
 
-  // 切换到指定页面
+  // 切换到指定页�?
   const goToPage = useCallback(
     (page: number) => {
       if (isAnimating || page < 0 || page > maxPage) return;
@@ -152,7 +153,7 @@ export default function Home() {
     };
   }, [currentPage, goToPage]);
 
-  // 处理触摸事件（移动端）
+  // 处理触摸事件（移动端�?
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
       touchStartY.current = e.touches[0].clientY;
@@ -189,20 +190,20 @@ export default function Home() {
       ref={containerRef}
       className='h-screen w-full overflow-hidden bg-gradient-to-b from-white to-sky-50 text-slate-800'
     >
-      {/* 固定的 Header - 完整横条，向中间收缩 */}
+      {/* 固定�?Header - 完整横条，向中间收缩 */}
       <header className='fixed top-4 left-0 right-0 z-50 pointer-events-none flex justify-center'>
         <div className='flex items-center justify-between gap-4 px-6 md:px-8 py-3 h-[60px] rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto max-w-4xl w-full mx-4'>
           {/* 左侧：Logo */}
           <div className='flex items-center'>
             <div
-              className='flex w-[110px] h-auto items-center pb-1 justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
+              className='flex w-[92px] h-[32px] items-center justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
               onClick={() => navigate("/")}
             >
               <img
-                src='/LogoText.svg'
-                alt='Tanvas'
+                src='/TAI-logo.png'
+                alt='TAI'
                 draggable='false'
-                className='brightness-0 invert'
+                className='h-8 w-auto object-contain'
                 style={{
                   imageRendering: "auto",
                   WebkitFontSmoothing: "antialiased",
@@ -211,7 +212,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 右侧：用户信息或登录/注册按钮（与设置弹窗使用相同的 connection 状态） */}
+          {/* 右侧：用户信息或登录/注册按钮（与设置弹窗使用相同�?connection 状态） */}
           <div className='flex items-center gap-3'>
             <LanguageSwitcher tone='dark' style='simple' />
             {user ? (
@@ -261,7 +262,7 @@ export default function Home() {
                           await logout();
                           navigate("/auth/login", { replace: true });
                         } catch (error) {
-                          console.error("退出登录失败:", error);
+                          console.error("退出登录失�?", error);
                         }
                       }}
                     >
@@ -291,7 +292,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* 页面指示器 - 暂时隐藏 */}
+      {/* 页面指示�?- 暂时隐藏 */}
       <div className='hidden fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-3'>
         {[0].map((i) => (
           <button
@@ -311,24 +312,16 @@ export default function Home() {
         className='transition-transform duration-500 ease-out'
         style={{ transform: `translateY(-${currentPage * 100}vh)` }}
       >
-        {/* 第一页 - 主标题 */}
+        {/* 第一�?- 主标�?*/}
         <section className='h-screen w-full flex flex-col items-center justify-center px-4 relative overflow-hidden'>
           {/* 视频背景 */}
-          <video
-            autoPlay
-            loop
-            muted
-            playsInline
-            className='absolute inset-0 w-full h-full object-cover z-[1]'
-          >
-            <source src='/OpenVideo.mp4' type='video/mp4' />
-            {t("home.videoUnsupported")}
-          </video>
+          <WelcomeShaderBackground className='z-[1]' />
+          <div className='absolute inset-0 z-[2] bg-black/35' />
 
           <div className='text-center relative z-10'>
             <h1 className='mb-10'>
               <img
-                src='/TanvasText.png'
+                src='/logo_text.png'
                 alt={t("home.hero.logoAlt")}
                 draggable='false'
                 className='mx-auto h-[5rem] sm:h-[5.7rem] object-contain drop-shadow-lg'
@@ -360,7 +353,7 @@ export default function Home() {
             </svg>
           </div>
 
-          {/* 备案号 */}
+          {/* 备案�?*/}
           <div className='absolute bottom-4 left-4 z-10'>
             <a
               href='https://beian.miit.gov.cn/'
@@ -373,7 +366,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* 第二页 - 功能介绍 */}
+        {/* 第二�?- 功能介绍 */}
         <section className='h-screen w-full flex flex-col items-center justify-center px-4 bg-gradient-to-b from-sky-50 to-white'>
           <div className='max-w-4xl mx-auto text-center'>
             <h2 className='text-4xl font-bold mb-12'>{t("home.features.title")}</h2>
@@ -445,7 +438,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* 第三页 - CTA 和 Footer */}
+        {/* 第三�?- CTA �?Footer */}
         <section className='min-h-screen w-full flex flex-col bg-gradient-to-b from-white to-sky-50'>
           <div className='flex-1 flex flex-col items-center justify-center px-4'>
             <div className='mist-card-wrapper w-full sm:w-[800px] mx-auto'>
@@ -481,3 +474,4 @@ export default function Home() {
     </div>
   );
 }
+

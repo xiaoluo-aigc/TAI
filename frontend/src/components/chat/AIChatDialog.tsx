@@ -329,7 +329,10 @@ const AIChatDialog: React.FC = () => {
   const focusMode = useUIStore((state) => state.focusMode);
   const showLibraryPanel = useUIStore((state) => state.showLibraryPanel);
   const isBlackTheme = chatTheme === "black";
-  const chatLogoSrc = isBlackTheme ? "/tanvas_ai.png" : "/Logo.svg";
+  const chatLogoSrc = "/logo.png";
+  const aiBrandTextClass = isBlackTheme
+    ? "text-sm font-bold text-white"
+    : "text-sm font-bold text-black";
   const isZh = (i18n.resolvedLanguage || i18n.language || "")
     .toLowerCase()
     .startsWith("zh");
@@ -4425,11 +4428,11 @@ const AIChatDialog: React.FC = () => {
                               <div className='flex items-center gap-2 mb-2'>
                                 <SmartImage
                                   src={chatLogoSrc}
-                                  alt='Tanvas Logo'
+                                  alt='TAI Logo'
                                   className='w-4 h-4'
                                 />
-                                <span className='text-sm font-bold text-black'>
-                                  Tanvas
+                                <span className={aiBrandTextClass}>
+                                  TAI
                                 </span>
                                 <span className='text-xs text-gray-400'>
                                   {
@@ -4553,11 +4556,11 @@ const AIChatDialog: React.FC = () => {
                                 <div className='flex items-center gap-2 mb-2'>
                                   <SmartImage
                                     src={chatLogoSrc}
-                                    alt='Tanvas Logo'
+                                    alt='TAI Logo'
                                     className='w-4 h-4'
                                   />
-                                  <span className='text-sm font-bold text-black'>
-                                    Tanvas
+                                  <span className={aiBrandTextClass}>
+                                    TAI
                                   </span>
                                   {(message.webSearchResult?.hasSearchResults ||
                                     (message.metadata as any)?.webSearchEnabled) && (
@@ -5497,11 +5500,11 @@ const AIChatDialog: React.FC = () => {
                     <div className='flex items-center gap-2 mb-2'>
                       <SmartImage
                         src={chatLogoSrc}
-                        alt='Tanvas Logo'
+                        alt='TAI Logo'
                         className='w-4 h-4'
                       />
-                      <span className='text-sm font-bold text-black'>
-                        Tanvas
+                      <span className={aiBrandTextClass}>
+                        TAI
                       </span>
                     </div>
                     <div className='text-sm leading-relaxed text-black break-words markdown-content'>
