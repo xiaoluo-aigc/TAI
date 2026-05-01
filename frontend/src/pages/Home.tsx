@@ -319,17 +319,11 @@ export default function Home() {
           <div className='absolute inset-0 z-[2] bg-black/35' />
 
           <div className='text-center relative z-10'>
-            <h1 className='mb-10'>
-              <img
-                src='/logo_text.png'
-                alt={t("home.hero.logoAlt")}
-                draggable='false'
-                className='mx-auto h-[5rem] sm:h-[5.7rem] object-contain drop-shadow-lg'
-                style={{
-                  imageRendering: "auto",
-                  WebkitFontSmoothing: "antialiased",
-                }}
-              />
+            <h1
+              className='mx-auto select-none text-[clamp(5rem,15vw,10rem)] font-black leading-none tracking-[0.08em] text-white drop-shadow-[0_12px_32px_rgba(0,0,0,0.55)]'
+              aria-label={t("home.hero.logoAlt")}
+            >
+              TAI
             </h1>
             <p className='text-xl text-slate-200 mb-12 drop-shadow-md'>
               {t("home.hero.subtitle")}
