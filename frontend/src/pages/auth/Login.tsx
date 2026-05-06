@@ -109,7 +109,7 @@ export default function LoginPage() {
 
       <Card className='relative z-10 my-auto w-full max-w-2xl border border-white/20 bg-white/10 p-4 shadow-2xl backdrop-blur-md sm:p-8'>
         <div className='mb-6 flex items-center justify-center sm:mb-10'>
-          <img src='/LogoText.svg' className='h-7 w-auto brightness-0 invert drop-shadow-lg sm:h-8' />
+          <img src='/TAI-logo.png' className='h-12 w-auto sm:h-16' />
         </div>
         <div className='flex justify-center'>
           <div className='w-full max-w-xl'>

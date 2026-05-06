@@ -124,7 +124,7 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
       <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div className="flex items-center gap-3">
-            <img src="/LogoText.svg" className="h-6 w-auto" alt="Tanva" />
+            <img src="/TAI-logo.png" className="h-8 w-auto" alt="TAI" />
             <span className="text-sm text-slate-500">{t('auth.modal.expiredTitle')}</span>
           </div>
           <button

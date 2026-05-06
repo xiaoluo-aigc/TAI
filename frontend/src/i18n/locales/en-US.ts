@@ -62,7 +62,7 @@ const enUS = {
     linkCopied: "Link copied to clipboard!",
     shareLink: "Share link: {{url}}",
     share: {
-      title: "Tanvas",
+      title: "TAI",
       text: "Try this intelligent canvas app!",
     },
     icp: "ICP License: 粤ICP备2026004877号-1",

@@ -46,9 +46,9 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
       <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white">
         <div className="text-center">
           <img
-            src="/LogoText.svg"
-            className="h-8 w-auto mx-auto mb-6"
-            alt="Tanva"
+            src="/TAI-logo.png"
+            className="h-12 w-auto mx-auto mb-6 sm:h-16"
+            alt="TAI"
           />
           <p className="text-red-500 mb-4">{error}</p>
           <button

@@ -458,7 +458,7 @@ export default function Home() {
             </div>
           </div>
           <footer className='border-t py-6 text-center text-sm text-slate-500'>
-            © {new Date().getFullYear()} Tanvas · v1.0.0
+            © {new Date().getFullYear()} TAI · v1.0.0
           </footer>
         </section>
       </div>

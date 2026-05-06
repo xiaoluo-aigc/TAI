@@ -20,9 +20,9 @@ export const AppLoader: React.FC<AppLoaderProps> = ({
       <div className="flex flex-col items-center gap-6">
         {showLogo && (
           <img
-            src="/LogoText.svg"
-            className="h-8 w-auto"
-            alt="Tanva"
+            src="/TAI-logo.png"
+            className="h-12 w-auto sm:h-16"
+            alt="TAI"
           />
         )}
         <LoadingSpinner size="lg" message={displayMessage} />
