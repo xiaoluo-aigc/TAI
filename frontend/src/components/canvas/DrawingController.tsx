@@ -6376,7 +6376,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         window.dispatchEvent(
           new CustomEvent("toast", {
-            detail: { message: "已添加到个人库", type: "success" },
+            detail: { message: "已添加到AI资产", type: "success" },
           })
         );
       } catch (error) {
@@ -6536,11 +6536,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: "已添加到个人库", type: "success" },
+          detail: { message: "已添加到AI资产", type: "success" },
         })
       );
 
-      logger.debug("SVG已添加到个人库:", {
+      logger.debug("SVG已添加到AI资产:", {
         assetId,
         width,
         height,

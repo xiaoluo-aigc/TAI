@@ -41,7 +41,7 @@ const zhCN = {
     },
     hero: {
       logoAlt: "探索创作之境",
-      subtitle: "专业绘图与 AI 创作平台，轻松开启你的灵感旅程",
+      subtitle: "让 每 一 次 设 计 比 上 一 次 更 聪 明",
       startNow: "立即体验",
     },
     features: {

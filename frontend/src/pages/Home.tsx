@@ -320,7 +320,7 @@ export default function Home() {
 
           <div className='text-center relative z-10'>
             <h1
-              className='mx-auto select-none text-[clamp(5rem,15vw,10rem)] font-black leading-none tracking-[0.08em] text-white drop-shadow-[0_12px_32px_rgba(0,0,0,0.55)]'
+              className='mb-5 mx-auto select-none text-[clamp(5rem,15vw,10rem)] font-black leading-none tracking-[0.08em] text-white drop-shadow-[0_12px_32px_rgba(0,0,0,0.55)]'
               aria-label={t("home.hero.logoAlt")}
             >
               TAI

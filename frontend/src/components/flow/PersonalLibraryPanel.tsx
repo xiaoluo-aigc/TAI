@@ -447,7 +447,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
       >
         <div>
           <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>
-            {lt("个人库", "Personal Library")}
+            {lt("AI资产", "AI Assets")}
           </div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
             {lt(

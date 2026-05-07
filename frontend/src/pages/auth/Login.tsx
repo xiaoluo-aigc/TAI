@@ -108,8 +108,9 @@ export default function LoginPage() {
       <div className='absolute inset-0 bg-black/50 z-[2]'></div>
 
       <Card className='relative z-10 my-auto w-full max-w-2xl border border-white/20 bg-white/10 p-4 shadow-2xl backdrop-blur-md sm:p-8'>
-        <div className='mb-6 flex items-center justify-center sm:mb-10'>
-          <img src='/TAI-logo.png' className='h-12 w-auto sm:h-16' />
+        <div className=' flex items-center justify-center sm:mb-5 gap-4'>
+        <img src='/logo.png' className='h-5 w-auto sm:h-8' />
+          <span className='text-2xl font-bold text-white sm:text-3xl'>天宫 · 神匠</span>
         </div>
         <div className='flex justify-center'>
           <div className='w-full max-w-xl'>

@@ -1186,7 +1186,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <TooltipContent side="right">{lt('图层面板', 'Layer Panel')}</TooltipContent>
       </Tooltip>
 
-      {/* 个人库按钮 */}
+      {/* AI资产按钮 */}
       <Tooltip open={isSubMenuOpen ? false : undefined}>
         <TooltipTrigger asChild>
           <Button
@@ -1201,7 +1201,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <FolderOpen className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="right">{lt('个人库', 'Personal Library')}</TooltipContent>
+        <TooltipContent side="right">{lt('AI资产', 'AI Assets')}</TooltipContent>
       </Tooltip>
 
       {/* 模板库按钮 */}

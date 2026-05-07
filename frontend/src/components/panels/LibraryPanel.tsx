@@ -930,7 +930,7 @@ const LibraryPanel: React.FC = () => {
         });
         window.dispatchEvent(
           new CustomEvent("toast", {
-            detail: { message: lt("图片已添加到个人库", "Image added to personal library"), type: "success" },
+            detail: { message: lt("图片已添加到AI资产", "Image added to AI assets"), type: "success" },
           })
         );
         setLibraryDragHovering(false);

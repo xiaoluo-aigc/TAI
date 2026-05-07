@@ -11019,7 +11019,7 @@ function FlowInner() {
 
           window.dispatchEvent(
             new CustomEvent("toast", {
-              detail: { message: "已添加到个人库", type: "success" },
+              detail: { message: "已添加到AI资产", type: "success" },
             })
           );
         } catch (error) {
@@ -22112,7 +22112,7 @@ function FlowInner() {
                       cursor: "pointer",
                     }}
                   >
-                    {lt("个人库", "Personal Library")}
+                    {lt("AI资产", "AI Assets")}
                   </button>
                 )}
               </div>
