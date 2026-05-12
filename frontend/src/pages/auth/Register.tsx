@@ -8,6 +8,7 @@ import { Eye, EyeOff, Check, X } from "lucide-react";
 import { validateInviteCode } from "@/services/referralApi";
 import { authApi } from "@/services/authApi";
 import { useTranslation } from "react-i18next";
+import WelcomeShaderBackground from "@/components/background/WelcomeShaderBackground";
 
 export default function RegisterPage() {
   const { t } = useTranslation();
@@ -160,19 +161,10 @@ export default function RegisterPage() {
   return (
     <div className='relative flex min-h-screen items-start justify-center overflow-y-auto overflow-x-hidden px-4 py-6 sm:items-center sm:px-6 sm:py-10'>
       {/* 视频背景 */}
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        className='absolute inset-0 w-full h-full object-cover z-[1]'
-      >
-        <source src='/OpenVideo.mp4' type='video/mp4' />
-        {t("auth.videoUnsupported")}
-      </video>
+      <WelcomeShaderBackground className='z-[1]' />
 
       {/* 黑色透明蒙版 */}
-      <div className='absolute inset-0 bg-black/50 z-[2]'></div>
+      <div className='absolute inset-0 bg-black/35 z-[2]'></div>
 
       <Card className='relative z-10 my-auto w-full max-w-xl border border-white/20 bg-white/10 p-4 shadow-2xl backdrop-blur-md sm:p-8'>
         <div className='mb-6 flex items-center justify-center sm:mb-8'>

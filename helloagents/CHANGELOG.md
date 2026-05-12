@@ -10,7 +10,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - GPT-Image-2 official submission now includes clearer upstream error observability (`requestId` + raw body logging), transient 5xx submit retry, and a single automatic fallback from `4k` to `2k` for stable-route official requests when upstream 5xx occurs.
 
 ### Changed
-- Frontend welcome background: replaced `OpenVideo.mp4` backgrounds on Home (`/`) and Login (`/auth/login`) with reusable Three.js shader animation components (`frontend/src/components/background/WelcomeShaderBackground.tsx`, `frontend/src/components/background/ShaderPlaneBackground.tsx`).
+- Frontend welcome background: replaced `OpenVideo.mp4` backgrounds on Home (`/`), Login (`/auth/login`), and Register (`/auth/register`) with reusable Three.js shader animation components (`frontend/src/components/background/WelcomeShaderBackground.tsx`, `frontend/src/components/background/ShaderPlaneBackground.tsx`).
 - Auth UI: removed Watcha OAuth button and WeChat QR-scan login entry from login page and login-expired modal; login methods are now limited to phone/password and SMS code (`frontend/src/pages/auth/Login.tsx`, `frontend/src/components/auth/LoginModal.tsx`).
 - Credits: 免费用户月度额度进入新周期前会先清空旧周期剩余额度，并新增定时兜底清理 `free_monthly_quota` 过期 lot，避免 30 天滚动周期下两笔 500 积分在账户余额中叠加。
 
