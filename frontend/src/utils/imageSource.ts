@@ -16,7 +16,7 @@ export type BlobUrl = `blob:${string}`;
 export type DataUrl = `data:${string}`;
 export type DataImageUrl = `data:image/${string}`;
 
-const DEFAULT_MANAGED_ASSET_HOST = "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com";
+const DEFAULT_MANAGED_ASSET_HOST = "tai-ai.tos-cn-guangzhou.volces.com";
 const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 8_000;
 const WEAK_NETWORK_IMAGE_FETCH_TIMEOUT_MS = 12_000;
 const DEFAULT_IMAGE_FETCH_RETRIES = 1;
@@ -260,7 +260,7 @@ const BACKEND_DEFAULT_ALLOWED_HOSTS = [
   "volces.com",
   "tencentcos.cn",
   "myqcloud.com",
-  "tai-tanva-ai.oss-cn-shenzhen.aliyuncs.com",
+  "tai-ai.tos-cn-guangzhou.volces.com",
 ];
 
 const getManagedAssetHosts = (): Set<string> => {
