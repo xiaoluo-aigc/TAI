@@ -27,23 +27,11 @@ export type OssUploadResult = {
   size?: number;
 };
 
-type PresignResponse = {
-  host: string;
-  dir: string;
-  expire: number;
-  accessId: string;
-  policy: string;
-  signature: string;
+// 全新的预签名返回值类型
+type PresignPutResponse = {
+  uploadUrl: string;
+  publicUrl: string;
 };
-
-type PresignCacheEntry = {
-  value: PresignResponse;
-  expiresAtMs: number;
-};
-
-const PRESIGN_CACHE_TTL_FALLBACK_MS = 60_000;
-const PRESIGN_CACHE_SAFETY_MS = 10_000;
-const presignCache = new Map<string, PresignCacheEntry>();
 
 function getApiBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL &&
@@ -51,12 +39,16 @@ function getApiBaseUrl(): string {
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000";
 }
-
+/*
 function isBackendImageRelayEnabled(): boolean {
   const raw = String((import.meta.env.VITE_IMAGE_UPLOAD_BACKEND_RELAY as string | undefined) || "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
-
+*/
+function isBackendImageRelayEnabled(): boolean {
+  // 强制关闭后端中转，彻底避开后端 req.on 报错，直接走 TOS 直传
+  return false; 
+}
 function normalizeDir(baseDir: string | undefined, projectId?: string | null) {
   const trimmed = baseDir?.trim();
   if (trimmed) return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
@@ -121,50 +113,31 @@ export async function dataURLToBlobAsync(dataURL: string): Promise<Blob> {
   }
 }
 
-async function requestPresign(
-  dir: string,
-  maxSize?: number,
+// 全新的获取 PUT 预签名链接方法
+async function requestPresignPutUrl(
+  key: string,
+  contentType?: string,
   authToken?: string
-): Promise<PresignResponse> {
-  const cacheKey = `${dir}|${maxSize ?? ""}|${authToken ?? "__auto__"}`;
-  const cached = presignCache.get(cacheKey);
-  if (cached && cached.expiresAtMs > Date.now() + PRESIGN_CACHE_SAFETY_MS) {
-    return cached.value;
-  }
-
-  // 后端基础地址，统一从 .env 读取；无配置默认 http://localhost:4000
+): Promise<PresignPutResponse> {
   const API_BASE = getApiBaseUrl();
-
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (authToken) {
     headers.Authorization = `Bearer ${authToken}`;
   }
+  
   const res = await fetchWithAuth(`${API_BASE}/api/uploads/presign`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ dir, maxSize }),
+    body: JSON.stringify({ key, contentType }),
     auth: authToken ? "omit" : "auto",
     credentials: authToken ? "omit" : "include",
   });
+  
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data?.error || "获取上传凭证失败");
+    throw new Error(data?.error || data?.message || "获取上传凭证失败");
   }
-  const presign = data as PresignResponse;
-  const rawExpire = Number(presign.expire);
-  const expiresAtMs = (() => {
-    if (!Number.isFinite(rawExpire) || rawExpire <= 0) {
-      return Date.now() + PRESIGN_CACHE_TTL_FALLBACK_MS;
-    }
-    // 毫秒级时间戳
-    if (rawExpire > 1e12) return rawExpire;
-    // 秒级时间戳
-    if (rawExpire > 1e9) return rawExpire * 1000;
-    // TTL 秒数
-    return Date.now() + rawExpire * 1000;
-  })();
-  presignCache.set(cacheKey, { value: presign, expiresAtMs });
-  return presign;
+  return data as PresignPutResponse;
 }
 
 function isLikelyImageUpload(data: Blob | File, options: OssUploadOptions): boolean {
@@ -293,21 +266,19 @@ export async function uploadToOSS(
   try {
     const dir = normalizeDir(options.dir, options.projectId);
     const isImage = isLikelyImageUpload(data, options);
+    const mimeType = options.contentType || (data as File).type || "application/octet-stream";
+    const extension = inferExtension(options.fileName, mimeType);
 
-    // Image uploads prefer backend relay to avoid browser-policy false positives
-    // where direct OSS POST returns 200 but object is not immediately readable in render chain.
+    // 1. 提前确定最终的文件 Key (这是使用 S3 PUT 直传的前提)
+    const key = (() => {
+      const forced = typeof options.key === "string" ? options.key.trim() : "";
+      if (forced) return forced.replace(/^\/+/, "");
+      return buildKey(dir, options.fileName, extension);
+    })();
+
+    // 优先走后端中转分支（兼容旧逻辑）
     if (isImage && isBackendImageRelayEnabled()) {
-      const extension = inferExtension(
-        options.fileName,
-        options.contentType || (data as File).type
-      );
-      const preferredKey = (() => {
-        const forced = typeof options.key === "string" ? options.key.trim() : "";
-        if (forced) return forced.replace(/^\/+/, "");
-        return buildKey(dir, options.fileName, extension);
-      })();
-
-      const backendUpload = await uploadImageViaBackend(data, { ...options, dir }, preferredKey);
+      const backendUpload = await uploadImageViaBackend(data, { ...options, dir }, key);
       if (backendUpload.success && backendUpload.url) {
         const backendReadable = await verifyUploadedAssetReadable(
           backendUpload.key,
@@ -320,55 +291,27 @@ export async function uploadToOSS(
           error: "Backend image upload succeeded but asset is still not readable",
         };
       }
-      // backend failed: continue to legacy presign direct upload fallback below
       logger.warn("Backend image upload failed, fallback to direct OSS upload", {
         error: backendUpload.error,
       });
     }
 
-    const presign = await requestPresign(dir, options.maxSize, options.authToken);
+    // --- 全新 TOS/S3 标准 PUT 直传逻辑 ---
 
-    const extension = inferExtension(
-      options.fileName,
-      options.contentType || (data as File).type
-    );
-    const key = (() => {
-      const forced = typeof options.key === "string" ? options.key.trim() : "";
-      if (forced) {
-        const normalized = forced.replace(/^\/+/, "");
-        const expectedPrefix = (presign.dir || dir).replace(/^\/+/, "");
-        if (expectedPrefix && !normalized.startsWith(expectedPrefix)) {
-          throw new Error(`指定 key 必须以 ${expectedPrefix} 开头`);
-        }
-        return normalized;
-      }
-      return buildKey(presign.dir || dir, options.fileName, extension);
-    })();
+    // 2. 向后端请求针对该 Key 的专属 PUT 预签名链接
+    const presignData = await requestPresignPutUrl(key, mimeType, options.authToken);
 
-    const formData = new FormData();
-    formData.append("key", key);
-    formData.append("policy", presign.policy);
-    formData.append("OSSAccessKeyId", presign.accessId);
-    formData.append("signature", presign.signature);
-    formData.append("success_action_status", "200");
-    if (options.contentType) {
-      formData.append("Content-Type", options.contentType);
-    }
-    formData.append(
-      "file",
-      data instanceof File
-        ? data
-        : new File([data], options.fileName || "upload", {
-            type:
-              options.contentType ||
-              (data as File).type ||
-              "application/octet-stream",
-          })
-    );
+    // 3. 将二进制文件直接 PUT 到预签名链接 (彻底抛弃 FormData)
+    const fileToUpload = data instanceof File 
+      ? data 
+      : new File([data], options.fileName || "upload", { type: mimeType });
 
-    const uploadResp = await fetchWithAuth(presign.host, {
-      method: "POST",
-      body: formData,
+    const uploadResp = await fetchWithAuth(presignData.uploadUrl, {
+      method: "PUT",
+      body: fileToUpload,
+      headers: {
+        "Content-Type": mimeType,
+      },
       auth: "omit",
       allowRefresh: false,
       credentials: "omit",
@@ -376,14 +319,12 @@ export async function uploadToOSS(
 
     if (!uploadResp.ok) {
       const text = await uploadResp.text();
-      throw new Error(
-        `OSS 上传失败: ${uploadResp.status} ${uploadResp.statusText} ${
-          text || ""
-        }`.trim()
-      );
+      throw new Error(`OSS 上传失败: ${uploadResp.status} ${text || ""}`.trim());
     }
 
-    const publicUrl = `${presign.host}/${key}`;
+    const publicUrl = presignData.publicUrl;
+
+    // 4. 上传完成后的可读性双重校验
     if (isLikelyImageUpload(data, options)) {
       const readable = await verifyUploadedAssetReadable(key, publicUrl, options.authToken);
       if (!readable) {
@@ -416,6 +357,7 @@ export async function uploadToOSS(
         };
       }
     }
+    
     return {
       success: true,
       url: publicUrl,

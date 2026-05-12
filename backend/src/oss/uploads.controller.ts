@@ -43,7 +43,7 @@ function normalizeUploadDir(raw?: string, fallback = 'uploads/images/'): string 
 function sanitizeFileName(raw?: string, fallback = 'image.png'): string {
   const trimmed = typeof raw === 'string' ? raw.trim() : '';
   const source = trimmed || fallback;
-  return source.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return source.replace(/[^a-zA0-9_.-]/g, '_');
 }
 
 function inferExtFromMime(mimeType?: string): string {
@@ -62,17 +62,28 @@ export class UploadsController {
   private readonly logger = new Logger(UploadsController.name);
 
   constructor(private readonly oss: OssService) {}
-
+/*
   @Post('presign')
   @ApiCookieAuth('access_token')
   @UseGuards(JwtAuthGuard)
   presign(@Body() body: { dir?: string; maxSize?: number }) {
     const dir = body?.dir ?? 'uploads/';
-    const max = body?.maxSize ?? 32 * 1024 * 1024; // 增加默认最大文件大小到32MB，支持更大的模板JSON文件
+    const max = body?.maxSize ?? 32 * 1024 * 1024;
     const data = this.oss.presignPost(dir, 300, max);
     return data;
   }
-
+*/
+  @Post('presign')
+  @ApiCookieAuth('access_token')
+  @UseGuards(JwtAuthGuard)
+  async presign(@Body() body: { key: string; contentType?: string }) {
+    if (!body || !body.key) {
+      throw new BadRequestException('上传路径(key)不能为空');
+    }
+    // 调用新的 S3 预签名方法生成 PUT 链接
+    const data = await this.oss.getPresignedPutUrl(body.key, body.contentType);
+    return data; // 返回 { uploadUrl: string, publicUrl: string }
+  }
   @Post('image')
   @ApiCookieAuth('access_token')
   @UseGuards(JwtAuthGuard)
@@ -147,7 +158,6 @@ export class UploadsController {
       throw new BadRequestException('videoUrl is required');
     }
 
-    // 验证 URL 格式
     let url: URL;
     try {
       url = new URL(videoUrl.trim());
@@ -161,7 +171,6 @@ export class UploadsController {
 
     this.logger.log(`[transfer-video] Downloading from: ${videoUrl.slice(0, 100)}...`);
 
-    // 下载视频
     const response = await fetch(videoUrl, {
       headers: { 'User-Agent': 'Tanva-Server/1.0' },
     });
@@ -181,7 +190,6 @@ export class UploadsController {
       );
     }
 
-    // 确定文件扩展名
     let ext = 'mp4';
     if (contentType.includes('webm')) ext = 'webm';
     else if (contentType.includes('quicktime') || contentType.includes('mov')) ext = 'mov';
@@ -189,7 +197,6 @@ export class UploadsController {
 
     const key = `videos/transferred/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-    // 转换为 Buffer 并上传
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
