@@ -6877,7 +6877,7 @@ function FlowInner() {
       const a = document.createElement("a");
       const blobUrl = URL.createObjectURL(blob);
       a.href = blobUrl;
-      a.download = `tanva-template-${Date.now()}.json`;
+      a.download = `tai-template-${Date.now()}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
     } catch (err) {
