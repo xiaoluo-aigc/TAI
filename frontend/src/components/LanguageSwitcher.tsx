@@ -79,7 +79,7 @@ export default function LanguageSwitcher({
                 : "text-slate-500 hover:text-slate-700"
         )}
       >
-        ZH
+        中
       </button>
       {isSimple && (
         <span className={cn("text-xs", tone === "dark" ? "text-white/45" : "text-slate-300")}>

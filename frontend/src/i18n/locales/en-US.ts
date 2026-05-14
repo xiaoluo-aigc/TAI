@@ -41,7 +41,7 @@ const enUS = {
     },
     hero: {
       logoAlt: "Explore the Realm of Creation",
-      subtitle: "A professional drawing and AI creation platform to start your ideas quickly.",
+      subtitle: "Make every design smarter than the last",
       startNow: "Start Now",
     },
     features: {
@@ -52,6 +52,12 @@ const enUS = {
       drawingDesc: "Node-based workflows for flexible tool composition.",
       styleTitle: "Diverse Styles",
       styleDesc: "Support for multiple artistic styles and needs.",
+      items: [
+        { label: "Intelligent Generation", desc: "AI-powered design inspiration" },
+        { label: "Efficient Collaboration", desc: "Real-time team collaboration" },
+        { label: "Precision & Professional", desc: "Details make quality" },
+        { label: "Continuous Evolution", desc: "Every step forward" },
+      ],
     },
     cta: {
       ready: "Ready to get started?",
@@ -85,6 +91,7 @@ const enUS = {
     },
     videoUnsupported: "Your browser does not support video playback.",
     login: {
+      welcome: "Welcome",
       passwordTab: "Password",
       smsTab: "SMS Code",
       phonePlaceholder: "Enter phone number",
@@ -124,10 +131,11 @@ const enUS = {
     },
     register: {
       title: "Create Account",
-      phonePlaceholder: "Phone number (required)",
+      subtitle: "Join TAI and start your design journey",
+      phonePlaceholder: "Phone number",
       emailPlaceholder: "Email (optional)",
       namePlaceholder: "Username (required)",
-      passwordPlaceholder: "Set password (at least 10 chars, mixed case + number)",
+      passwordPlaceholder: "Set password (at least 10 chars, mixed case+number)",
       confirmPlaceholder: "Confirm password",
       invitePlaceholder: "Invite code (optional)",
       submit: "Sign up",

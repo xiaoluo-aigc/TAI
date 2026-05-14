@@ -21,6 +21,7 @@ export default function LoginPage() {
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [sendCooldown, setSendCooldown] = useState(0);
+  const [hasSentCode, setHasSentCode] = useState(false);
   const navigate = useNavigate();
   const { login, loginWithSms, error, user } = useAuthStore();
 
@@ -83,6 +84,7 @@ export default function LoginPage() {
           },
         })
       );
+      setHasSentCode(true);
       setSendCooldown(60);
     } catch (err: any) {
       window.dispatchEvent(
@@ -107,196 +109,211 @@ export default function LoginPage() {
       <WelcomeShaderBackground className='z-[1]' />
       <div className='absolute inset-0 bg-black/50 z-[2]'></div>
 
-      <Card className='relative z-10 my-auto w-full max-w-2xl border border-white/20 bg-white/10 p-4 shadow-2xl backdrop-blur-md sm:p-8'>
-        <div className=' flex items-center justify-center sm:mb-5 gap-4'>
-        <img src='/logo.png' className='h-5 w-auto sm:h-8' />
-          <span className='text-2xl font-bold text-white sm:text-3xl'>天宫 · 神匠</span>
-        </div>
-        <div className='flex justify-center'>
-          <div className='w-full max-w-xl'>
-            <div className='mb-6 grid grid-cols-2 gap-2 text-center text-sm sm:mb-8 sm:flex sm:items-center sm:justify-center sm:gap-6'>
-              <button
-                className={
-                  tab === "password"
-                    ? "rounded-full bg-white/14 px-3 py-2 text-white font-semibold drop-shadow-md transition-all duration-200 sm:bg-transparent sm:px-0 sm:py-0"
-                    : "rounded-full px-3 py-2 text-white/70 transition-all duration-200 hover:text-white sm:px-0 sm:py-0"
-                }
-                onClick={() => setTab("password")}
-              >
-                {t("auth.login.passwordTab")}
-              </button>
-              <button
-                className={
-                  tab === "sms"
-                    ? "rounded-full bg-white/14 px-3 py-2 text-white font-semibold drop-shadow-md transition-all duration-200 sm:bg-transparent sm:px-0 sm:py-0"
-                    : "rounded-full px-3 py-2 text-white/70 transition-all duration-200 hover:text-white sm:px-0 sm:py-0"
-                }
-                onClick={() => setTab("sms")}
-              >
-                {t("auth.login.smsTab")}
-              </button>
-            </div>
-
-            {tab === "password" ? (
-              <form onSubmit={onSubmit} className='space-y-5 sm:space-y-6 sm:px-16'>
-                <Input
-                  placeholder={t("auth.login.phonePlaceholder")}
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  required
-                  className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
-                />
-                <div className='relative'>
-                  <Input
-                    placeholder={t("auth.login.passwordPlaceholder")}
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 pr-10'
-                  />
-                  <button
-                    type='button'
-                    onClick={() => setShowPassword(!showPassword)}
-                    className='absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors'
-                  >
-                    {showPassword ? <Eye className='h-5 w-5' /> : <EyeOff className='h-5 w-5' />}
-                  </button>
-                </div>
-                {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
-                <Button
-                  type='submit'
-                  className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
-                  disabled={isSubmitting || !agreeTerms}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                      {t("auth.login.submitting")}
-                    </>
-                  ) : (
-                    t("auth.login.submit")
-                  )}
-                </Button>
-                <div className='flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4'>
-                  <button
-                    onClick={() => setIsForgotPasswordOpen(true)}
-                    className='text-left text-white/80 transition-all duration-200 hover:text-white'
-                  >
-                    {t("auth.login.forgotPassword")}
-                  </button>
-                  <Link
-                    to='/auth/register'
-                    className='text-left text-white/80 transition-all duration-200 hover:text-white sm:text-right'
-                  >
-                    {t("auth.login.registerNow")}
-                  </Link>
-                </div>
-
-                <div className='flex items-start justify-center gap-2 pt-2 sm:items-center'>
-                  <button
-                    type='button'
-                    onClick={() => setAgreeTerms(!agreeTerms)}
-                    className={`mt-0.5 flex h-3 w-3 shrink-0 items-center justify-center rounded-full border-2 transition-all sm:mt-0 ${
-                      agreeTerms ? "bg-white border-white" : "bg-transparent border-white/50"
-                    }`}
-                  >
-                    {agreeTerms && <Check className='w-3 h-3 text-black' />}
-                  </button>
-                  <label
-                    onClick={() => setAgreeTerms(!agreeTerms)}
-                    className='cursor-pointer text-left text-xs leading-5 text-white/70'
-                  >
-                    {t("auth.agreements.prefix")}{" "}
-                    <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
-                      {t("auth.agreements.terms")}
-                    </Link>
-                    {t("auth.agreements.comma")}
-                    <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
-                      {t("auth.agreements.privacy")}
-                    </Link>{" "}
-                    {t("auth.agreements.and")}{" "}
-                    <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
-                      {t("auth.agreements.community")}
-                    </Link>
-                  </label>
-                </div>
-              </form>
-            ) : (
-              <form onSubmit={onSubmit} className='space-y-5 sm:space-y-6 sm:px-16'>
-                <Input
-                  placeholder={t("auth.login.phonePlaceholder")}
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  required
-                  className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
-                />
-                <div className='flex flex-col gap-3 sm:flex-row'>
-                  <Input
-                    placeholder={t("auth.login.codePlaceholder")}
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12 flex-1'
-                  />
-                  <Button
-                    type='button'
-                    variant='outline'
-                    className='h-12 w-full rounded-xl border-white/30 bg-white/20 text-white backdrop-blur-sm transition-all duration-200 hover:bg-white/30 sm:min-w-[112px] sm:w-auto sm:flex-shrink-0 sm:whitespace-nowrap'
-                    onClick={() => void sendSmsCode(phone)}
-                    disabled={sendCooldown > 0}
-                  >
-                    {sendCooldown > 0 ? t("auth.login.resendCode", { seconds: sendCooldown }) : t("auth.login.sendCode")}
-                  </Button>
-                </div>
-                {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
-                <Button
-                  type='submit'
-                  className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
-                  disabled={isSubmitting || !agreeTerms}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                      {t("auth.login.submitting")}
-                    </>
-                  ) : (
-                    t("auth.login.submit")
-                  )}
-                </Button>
-
-                <div className='flex items-start justify-center gap-2 pt-2 sm:items-center'>
-                  <button
-                    type='button'
-                    onClick={() => setAgreeTerms(!agreeTerms)}
-                    className={`mt-0.5 flex h-3 w-3 shrink-0 items-center justify-center rounded-full border-2 transition-all sm:mt-0 ${
-                      agreeTerms ? "bg-white border-white" : "bg-transparent border-white/50"
-                    }`}
-                  >
-                    {agreeTerms && <Check className='w-3 h-3 text-black' />}
-                  </button>
-                  <label
-                    onClick={() => setAgreeTerms(!agreeTerms)}
-                    className='cursor-pointer text-left text-xs leading-5 text-white/70'
-                  >
-                    {t("auth.agreements.prefix")}{" "}
-                    <Link to='/legal/terms' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
-                      {t("auth.agreements.terms")}
-                    </Link>
-                    {t("auth.agreements.comma")}
-                    <Link to='/legal/privacy' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
-                      {t("auth.agreements.privacy")}
-                    </Link>{" "}
-                    {t("auth.agreements.and")}{" "}
-                    <Link to='/legal/community' className='text-white hover:underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
-                      {t("auth.agreements.community")}
-                    </Link>
-                  </label>
-                </div>
-              </form>
-            )}
+      <div className='relative z-10 my-auto w-full max-w-xl flex flex-col items-center'>
+        <Card className='w-full border border-blue-400/20 bg-blue-500/10 p-6 shadow-2xl backdrop-blur-md sm:p-8 rounded-3xl'>
+          {/* Logo 区域 */}
+          <div className='flex items-center justify-center sm:mb-5 gap-1 pr-6'>
+            <img src='/login-logo.png' alt='logo' className='h-10 w-auto sm:h-14' />
+            <img src='/TAI.png' alt='TAI' className='h-8 w-auto sm:h-10' />
           </div>
-        </div>
-      </Card>
+
+          {/* 欢迎登录 + 光标 */}
+          <div className='mb-6 flex items-center justify-center gap-3'>
+            <span className='typing-cursor-line-shorter' />
+            <p className='text-sm text-white'>{t("auth.login.welcome")}</p>
+            <span className='typing-cursor-line-shorter' />
+          </div>
+
+          <div className='flex justify-center'>
+            <div className='w-full max-w-xl'>
+              {/* Tab 切换 */}
+              <div className='mb-6 flex items-center justify-center gap-12 sm:mb-8 sm:gap-16'>
+                <button
+                  className='flex flex-col items-center'
+                  onClick={() => setTab("password")}
+                >
+                  <span className={tab === "password" ? "text-sm font-semibold text-blue-400" : "text-sm text-white transition-all hover:text-white"}>
+                    {t("auth.login.passwordTab")}
+                  </span>
+                  <span className={tab === "password" ? "mt-2 block h-0.5 w-full bg-blue-400 rounded-full" : "mt-2 block h-0.5 w-0"} />
+                </button>
+                <button
+                  className='flex flex-col items-center'
+                  onClick={() => setTab("sms")}
+                >
+                  <span className={tab === "sms" ? "text-sm font-semibold text-blue-400" : "text-sm text-white transition-all hover:text-white"}>
+                    {t("auth.login.smsTab")}
+                  </span>
+                  <span className={tab === "sms" ? "mt-2 block h-0.5 w-full bg-blue-400 rounded-full" : "mt-2 block h-0.5 w-0"} />
+                </button>
+              </div>
+
+              {tab === "password" ? (
+                <form onSubmit={onSubmit} className='space-y-5 sm:space-y-6 max-w-md mx-auto'>
+                  <div className="relative">
+                    <img src="/register1.png" alt="" className="absolute left-6 top-1/2 -translate-y-1/2 h-5 w-auto z-10 pointer-events-none" />
+                    <Input
+                      placeholder={t("auth.login.phonePlaceholder")}
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      required
+                      className='bg-[#0d2847] border-transparent text-gray-300 placeholder:text-gray-400 focus:bg-[#144272] focus:border-transparent transition-all duration-200 rounded-xl h-12 pl-12'
+                    />
+                  </div>
+                  <div className='relative'>
+                    <img src="/register3.png" alt="" className="absolute left-6 top-1/2 -translate-y-1/2 h-5 w-auto z-10 pointer-events-none" />
+                    <Input
+                      placeholder={t("auth.login.passwordPlaceholder")}
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      className='bg-[#0d2847] border-transparent text-gray-300 placeholder:text-gray-400 focus:bg-[#144272] focus:border-transparent transition-all duration-200 rounded-xl h-12 pl-12 pr-10'
+                    />
+                    <button
+                      type='button'
+                      onClick={() => setShowPassword(!showPassword)}
+                      className='absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors'
+                    >
+                      {showPassword ? <Eye className='h-5 w-5' /> : <EyeOff className='h-5 w-5' />}
+                    </button>
+                  </div>
+                  {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
+                  <Button
+                    type='submit'
+                    className='w-full bg-blue-500 hover:bg-blue-600 text-white border-transparent rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
+                    disabled={isSubmitting || !agreeTerms}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                        {t("auth.login.submitting")}
+                      </>
+                    ) : (
+                      t("auth.login.submit")
+                    )}
+                  </Button>
+                  <div className='flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4'>
+                    <button
+                      onClick={() => setIsForgotPasswordOpen(true)}
+                      className='text-left text-white/80 transition-all duration-200 hover:text-white'
+                    >
+                      {t("auth.login.forgotPassword")}
+                    </button>
+                    <Link
+                      to='/auth/register'
+                      className='text-left text-white/80 transition-all duration-200 hover:text-white sm:text-right'
+                    >
+                      {t("auth.login.registerNow")}
+                    </Link>
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={onSubmit} className='space-y-5 sm:space-y-6 max-w-md mx-auto'>
+                  <div className="relative">
+                    <img src="/register1.png" alt="" className="absolute left-6 top-1/2 -translate-y-1/2 h-5 w-auto z-10 pointer-events-none" />
+                    <Input
+                      placeholder={t("auth.login.phonePlaceholder")}
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      required
+                      className='bg-[#0d2847] border-transparent text-gray-300 placeholder:text-gray-400 focus:bg-[#144272] focus:border-transparent transition-all duration-200 rounded-xl h-12 pl-12'
+                    />
+                  </div>
+
+                  {/* 验证码输入框 + 内嵌发送按钮（参考注册页样式） */}
+                  <div className="relative flex items-center rounded-xl h-12 bg-[#0d2847] border-transparent focus-within:bg-[#144272] transition-all duration-200">
+                    <img src="/register2.png" alt="" className="absolute left-6 top-1/2 -translate-y-1/2 h-5 w-auto z-10 pointer-events-none" />
+                    <Input
+                      placeholder={t("auth.login.codePlaceholder")}
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      maxLength={6}
+                      className='flex-1 bg-transparent border-0 text-gray-300 placeholder:text-gray-400 focus:bg-transparent focus:border-0 focus:ring-0 focus-visible:ring-0 h-full pl-12 pr-2 shadow-none'
+                    />
+                    <div className="h-5 w-px bg-white/20 shrink-0" />
+                    <button
+                      type="button"
+                      onClick={() => void sendSmsCode(phone)}
+                      disabled={sendCooldown > 0 || !phone.trim()}
+                      className="px-4 text-sm text-blue-400 hover:text-blue-300 transition-colors disabled:text-blue-400/50 disabled:cursor-not-allowed whitespace-nowrap shrink-0 h-full"
+                    >
+                      {sendCooldown > 0
+                        ? `${sendCooldown}秒后重新获取`
+                        : hasSentCode
+                          ? "重新发送"
+                          : "发送"}
+                    </button>
+                  </div>
+
+                  {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
+                  <Button
+                    type='submit'
+                    className='w-full bg-blue-500 hover:bg-blue-600 text-white border-transparent rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
+                    disabled={isSubmitting || !agreeTerms}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                        {t("auth.login.submitting")}
+                      </>
+                    ) : (
+                      t("auth.login.submit")
+                    )}
+                  </Button>
+
+                  <div className='flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4'>
+                    <button
+                      onClick={() => setIsForgotPasswordOpen(true)}
+                      className='text-left text-white/80 transition-all duration-200 hover:text-white'
+                    >
+                      {t("auth.login.forgotPassword")}
+                    </button>
+                    <Link
+                      to='/auth/register'
+                      className='text-left text-white/80 transition-all duration-200 hover:text-white sm:text-right'
+                    >
+                      {t("auth.login.registerNow")}
+                    </Link>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </Card>
+
+        {/* 协议卡片 */}
+        <Card className='w-fit mt-6 border-0 bg-blue-500/3 p-4 rounded-2xl backdrop-blur-md'>
+          <div className='flex items-start justify-center gap-2 sm:items-center'>
+            <button
+              type='button'
+              onClick={() => setAgreeTerms(!agreeTerms)}
+              className={`mt-0.5 flex h-3 w-3 shrink-0 items-center justify-center rounded-full border-2 transition-all sm:mt-0 ${
+                agreeTerms ? "bg-white border-white" : "bg-transparent border-white/50"
+              }`}
+            >
+              {agreeTerms && <Check className='w-3 h-3 text-black' />}
+            </button>
+            <label
+              onClick={() => setAgreeTerms(!agreeTerms)}
+              className='cursor-pointer text-left text-xs leading-5 text-white/100'
+            >
+              {t("auth.agreements.prefix")}{" "}
+              <Link to='/legal/terms' className='text-blue-400 hover:text-blue-300 underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
+                {t("auth.agreements.terms")}
+              </Link>
+              {t("auth.agreements.comma")}
+              <Link to='/legal/privacy' className='text-blue-400 hover:text-blue-300 underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
+                {t("auth.agreements.privacy")}
+              </Link>{" "}
+              {t("auth.agreements.and")}{" "}
+              <Link to='/legal/community' className='text-blue-400 hover:text-blue-300 underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
+                {t("auth.agreements.community")}
+              </Link>
+            </label>
+          </div>
+        </Card>
+      </div>
 
       <ForgotPasswordModal
         isOpen={isForgotPasswordOpen}

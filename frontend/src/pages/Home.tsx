@@ -1,7 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useRef, useState, useEffect, useCallback } from "react";
-import GlassButton from "@/components/GlassButton";
 import { useAuthStore } from "@/stores/authStore";
 import { MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -86,7 +85,8 @@ const WeChatFloatingButton = () => {
 };
 
 export default function Home() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const isZh = (i18n.resolvedLanguage || i18n.language || '').toLowerCase().startsWith('zh');
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
@@ -196,14 +196,24 @@ export default function Home() {
           {/* 左侧：Logo */}
           <div className='flex items-center'>
             <div
-              className='flex w-[92px] h-[32px] items-center justify-center cursor-pointer hover:opacity-80 transition-opacity select-none'
+              className='flex w-[92px] h-[32px] items-center justify-center cursor-pointer hover:opacity-80 transition-opacity select-none gap-1'
               onClick={() => navigate("/")}
             >
               <img
-                src='/TAI-logo.png'
-                alt='TAI'
+                src='/logo.png'
+                alt='logo'
                 draggable='false'
                 className='h-8 w-auto object-contain'
+                style={{
+                  imageRendering: "auto",
+                  WebkitFontSmoothing: "antialiased",
+                }}
+              />
+              <img
+                src='/TAI.png'
+                alt='TAI'
+                draggable='false'
+                className='h-auto w-auto object-contain'
                 style={{
                   imageRendering: "auto",
                   WebkitFontSmoothing: "antialiased",
@@ -312,24 +322,121 @@ export default function Home() {
         className='transition-transform duration-500 ease-out'
         style={{ transform: `translateY(-${currentPage * 100}vh)` }}
       >
-        {/* 第一�?- 主标�?*/}
-        <section className='h-screen w-full flex flex-col items-center justify-center px-4 relative overflow-hidden'>
+        {/* 第一页 - 主标题 */}
+        <section className='h-screen w-full flex flex-col items-center px-4 relative overflow-hidden'>
           {/* 视频背景 */}
           <WelcomeShaderBackground className='z-[1]' />
           <div className='absolute inset-0 z-[2] bg-black/35' />
 
-          <div className='text-center relative z-10'>
-            <h1
-              className='mb-5 mx-auto select-none text-[clamp(5rem,15vw,10rem)] font-black leading-none tracking-[0.08em] text-white drop-shadow-[0_12px_32px_rgba(0,0,0,0.55)]'
-              aria-label={t("home.hero.logoAlt")}
+          <div className='flex-1 flex flex-col items-center justify-center text-center relative z-10 w-full pt-8'>
+            {/* 顶部占位，将整个标题+文字+光标区域整体下移 */}
+            <div className='mt-10' />
+            {/* 主标题 - 中文显示图片，英文显示 TAI 文字 */}
+            {isZh ? (
+              <img
+                src="/home.png"
+                alt='天宫 · 神匠'
+                className='mb-5 h-auto max-w-[clamp(18rem,55vw,40rem)] select-none hero-title-glow'
+              />
+            ) : (
+              <h1
+                className='mb-5 select-none text-[clamp(5rem,15vw,10rem)] font-black leading-none tracking-[0.08em] text-white drop-shadow-[0_12px_32px_rgba(0,0,0,0.55)]'
+                aria-label={t("home.hero.logoAlt")}
+              >
+                TAI
+              </h1>
+            )}
+            {/* 副标题 + 打字机光标 */}
+            <div className='flex items-center justify-center gap-4 md:gap-6 mb-16'>
+              <span className='typing-cursor-line' />
+              <p className='text-lg md:text-xl text-slate-200 drop-shadow-md whitespace-nowrap'>
+                {t("home.hero.subtitle")}
+              </p>
+              <span className='typing-cursor-line' />
+            </div>
+            {/* 立即体验按钮 - 科技感图片按钮 */}
+            <button
+              onClick={() => navigate("/app")}
+              className='mt-6 relative group cursor-pointer select-none bg-transparent border-0 p-0 outline-none focus:outline-none transition-transform duration-500 hover:scale-105'
+              style={{ background: 'none' }}
             >
-              TAI
-            </h1>
-            <p className='text-xl text-slate-200 mb-12 drop-shadow-md'>
-              {t("home.hero.subtitle")}
-            </p>
-            <GlassButton onClick={() => navigate("/app")}>{t("home.hero.startNow")}</GlassButton>
+              {/* 背景图片 */}
+              <img
+                src="/rectangle.png"
+                alt=''
+                className='h-auto max-w-[10rem] md:max-w-[14rem] block'
+                draggable='false'
+              />
+              {/* 悬浮蓝色科技光效层（无外部发光边框） */}
+              <div className='absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none tech-blue-overlay' />
+              {/* 窄光束扫过 */}
+              <div className='absolute inset-0 overflow-hidden pointer-events-none'>
+                <div className='tech-scan-line-narrow' />
+              </div>
+              {/* 文字 - 居中覆盖在图片上方 */}
+              <span className='absolute inset-0 flex items-center justify-center text-white text-base md:text-lg font-medium tracking-widest z-10 transition-transform duration-500 group-hover:scale-105'>
+                {t("home.hero.startNow")}
+              </span>
+            </button>
           </div>
+
+          {/* 底部四个特性图标 */}
+          <div className='mb-28 mx-auto flex flex-col items-center gap-8 relative z-10 px-4'>
+            {/* 四个图标上方的长光标横线 */}
+            <span className='typing-cursor-line-long' />
+
+            <div className='flex items-start justify-center gap-16 md:gap-28'>
+              {/* 第一个图标 - 带选中光标 */}
+              <div className='relative flex items-center gap-5'>
+                <img
+                  src="/image1.png"
+                  alt={t("home.features.items.0.label")}
+                  className='h-auto max-w-[3.5rem] md:max-w-[5rem] select-none feature-icon-glow'
+                />
+                <div className='flex flex-col'>
+                  <span className='text-white text-base md:text-lg font-medium leading-tight'>{t("home.features.items.0.label")}</span>
+                  <span className='text-slate-400 text-xs md:text-sm leading-tight mt-0.5'>{t("home.features.items.0.desc")}</span>
+                </div>
+                
+              </div>
+
+              <div className='flex items-center gap-5'>
+                <img
+                  src="/image2.png"
+                  alt={t("home.features.items.1.label")}
+                  className='h-auto max-w-[3.5rem] md:max-w-[5rem] select-none feature-icon-glow'
+                />
+                <div className='flex flex-col'>
+                  <span className='text-white text-base md:text-lg font-medium leading-tight'>{t("home.features.items.1.label")}</span>
+                  <span className='text-slate-400 text-xs md:text-sm leading-tight mt-0.5'>{t("home.features.items.1.desc")}</span>
+                </div>
+              </div>
+
+              <div className='flex items-center gap-5'>
+                <img
+                  src="/image3.png"
+                  alt={t("home.features.items.2.label")}
+                  className='h-auto max-w-[3.5rem] md:max-w-[5rem] select-none feature-icon-glow'
+                />
+                <div className='flex flex-col'>
+                  <span className='text-white text-base md:text-lg font-medium leading-tight'>{t("home.features.items.2.label")}</span>
+                  <span className='text-slate-400 text-xs md:text-sm leading-tight mt-0.5'>{t("home.features.items.2.desc")}</span>
+                </div>
+              </div>
+
+              <div className='flex items-center gap-5'>
+                <img
+                  src="/image4.png"
+                  alt={t("home.features.items.3.label")}
+                  className='h-auto max-w-[3.5rem] md:max-w-[5rem] select-none feature-icon-glow'
+                />
+                <div className='flex flex-col'>
+                  <span className='text-white text-base md:text-lg font-medium leading-tight'>{t("home.features.items.3.label")}</span>
+                  <span className='text-slate-400 text-xs md:text-sm leading-tight mt-0.5'>{t("home.features.items.3.desc")}</span>
+                </div>
+              </div>
+            </div>
+        </div>
           {/* 向下滚动提示 */}
           <div className='absolute bottom-12 animate-bounce z-10'>
             <svg
@@ -468,4 +575,5 @@ export default function Home() {
     </div>
   );
 }
+
 

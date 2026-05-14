@@ -1256,6 +1256,13 @@ export class AuthService {
     const normalizedCode = dto.code.trim();
     const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
 
+    if (dto.password.length < 8) {
+      throw new BadRequestException("至少8位密码");
+    }
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException("两次输入的密码不一致");
+    }
+
     const verify = await this.smsService.verifyCode(normalizedPhone, normalizedCode);
     if (!verify.ok) {
       throw new UnauthorizedException(verify.msg || "验证码错误");

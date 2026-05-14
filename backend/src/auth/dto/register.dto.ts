@@ -13,6 +13,10 @@ export class RegisterDto {
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, { message: '密码需包含大小写字母和数字' })
   password!: string;
 
+  @ApiProperty({ description: '确认密码（必填）' })
+  @IsString({ message: '确认密码必须是字符串' })
+  confirmPassword!: string;
+
   @ApiProperty({ description: '用户名（必填）', minLength: 1, maxLength: 50 })
   @IsString({ message: '用户名必须是字符串' })
   @Length(1, 50, { message: '用户名长度必须在1到50位之间' })

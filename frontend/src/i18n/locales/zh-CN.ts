@@ -41,7 +41,7 @@ const zhCN = {
     },
     hero: {
       logoAlt: "探索创作之境",
-      subtitle: "让 每 一 次 设 计 比 上 一 次 更 聪 明",
+      subtitle: "让每一次设计比上一次更聪明",
       startNow: "立即体验",
     },
     features: {
@@ -52,6 +52,12 @@ const zhCN = {
       drawingDesc: "节点式工作流，灵活组合各种工具",
       styleTitle: "多样风格",
       styleDesc: "支持多种艺术风格，满足不同需求",
+      items: [
+        { label: "智能生成", desc: "AI赋能设计灵感" },
+        { label: "高效协同", desc: "团队实时协作" },
+        { label: "精准专业", desc: "细节成就品质" },
+        { label: "持续进化", desc: "每一次都更进一步" },
+      ],
     },
     cta: {
       ready: "准备好开始了吗？",
@@ -85,6 +91,7 @@ const zhCN = {
     },
     videoUnsupported: "您的浏览器不支持视频播放。",
     login: {
+      welcome: "欢迎登录",
       passwordTab: "密码登录",
       smsTab: "验证码登录",
       phonePlaceholder: "请输入手机号",
@@ -124,10 +131,11 @@ const zhCN = {
     },
     register: {
       title: "注册账号",
-      phonePlaceholder: "请输入手机号（必填）",
+      subtitle: "加入TAI，开启设计未来之旅",
+      phonePlaceholder: "请输入手机号",
       emailPlaceholder: "邮箱（选填）",
       namePlaceholder: "用户名（必填）",
-      passwordPlaceholder: "设置密码（至少10位，含大小写与数字）",
+      passwordPlaceholder: "设置密码（至少8位，含大小写与数字）",
       confirmPlaceholder: "确认密码",
       invitePlaceholder: "邀请码（选填）",
       submit: "注册",
