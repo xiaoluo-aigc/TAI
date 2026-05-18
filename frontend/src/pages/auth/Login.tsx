@@ -114,7 +114,7 @@ export default function LoginPage() {
           {/* Logo 区域 */}
           <div className='flex items-center justify-center sm:mb-5 gap-1 pr-6'>
             <img src='/login-logo.png' alt='logo' className='h-10 w-auto sm:h-14' />
-            <img src='/TAI.png' alt='TAI' className='h-8 w-auto sm:h-10' />
+            <span className='text-white text-3xl sm:text-4xl font-bold select-none'>TAI</span>
           </div>
 
           {/* 欢迎登录 + 光标 */}

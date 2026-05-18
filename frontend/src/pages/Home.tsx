@@ -209,16 +209,12 @@ export default function Home() {
                   WebkitFontSmoothing: "antialiased",
                 }}
               />
-              <img
-                src='/TAI.png'
-                alt='TAI'
-                draggable='false'
-                className='h-auto w-auto object-contain'
-                style={{
-                  imageRendering: "auto",
-                  WebkitFontSmoothing: "antialiased",
-                }}
-              />
+              <span
+                className='text-white text-2xl font-bold select-none'
+                style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}
+              >
+                TAI
+              </span>
             </div>
           </div>
 
