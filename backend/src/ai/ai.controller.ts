@@ -1527,6 +1527,12 @@ export class AiController {
         throw new HttpException('上游模型额度不足或请求过于频繁，请稍后重试', 429);
       }
 
+      // 超时类错误统一映射为 HTTP 524（区分网关层 504 与业务层 524）
+      const mappedUpstreamError = this.mapUpstreamErrorToHttpException(error);
+      if (mappedUpstreamError) {
+        throw mappedUpstreamError;
+      }
+
       throw error;
     }
   }
@@ -1608,6 +1614,63 @@ export class AiController {
         message.includes('resource has been exhausted')
       );
     });
+  }
+
+  private isTimeoutLikeError(error: any): boolean {
+    const messages = [
+      error?.message,
+      error?.cause?.message,
+      error?.response?.message,
+      typeof error?.response === 'string' ? error.response : '',
+      error?.error?.message,
+      error?.body?.message,
+      error?.detail,
+    ]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase());
+
+    return messages.some((message) => {
+      return (
+        message.includes('524') ||
+        message.includes('504') ||
+        message.includes('timeout') ||
+        message.includes('timed out') ||
+        message.includes('gateway timeout') ||
+        message.includes('aborterror') ||
+        message.includes('aborted')
+      );
+    });
+  }
+
+  private extractHttpStatusFromError(error: any): number | null {
+    if (error instanceof HttpException) {
+      return error.getStatus();
+    }
+    const status = error?.status || error?.response?.status || error?.statusCode;
+    if (typeof status === 'number' && Number.isFinite(status)) {
+      return status;
+    }
+    const message = String(error?.message || '');
+    const match = message.match(/\b(\d{3})\b/);
+    if (match) {
+      const parsed = Number(match[1]);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  }
+
+  private mapUpstreamErrorToHttpException(error: any): HttpException | null {
+    const status = this.extractHttpStatusFromError(error);
+
+    if (status === 464) {
+      return new BadGatewayException('上游任务失败，请稍后重试');
+    }
+
+    if (status === 524 || this.isTimeoutLikeError(error)) {
+      return new HttpException('服务器处理超时，请稍后重试', 524);
+    }
+
+    return null;
   }
 
   private getTraceId(req: TraceableReq | any): string | null {

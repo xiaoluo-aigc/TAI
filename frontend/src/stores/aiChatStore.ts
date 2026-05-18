@@ -477,7 +477,7 @@ export interface ChatSessionSummary {
 
 let hasHydratedSessions = false;
 let isHydratingNow = false;
-let refreshSessionsTimeout: NodeJS.Timeout | null = null;
+let refreshSessionsTimeout: ReturnType<typeof setTimeout> | null = null;
 let legacyMigrationInProgress = false;
 
 type AutoModeMultiplier = 1 | 2 | 4 | 8;
@@ -2938,7 +2938,7 @@ export const useAIChatStore = create<AIChatState>()(
         manualAIMode: "auto",
         autoSelectedTool: null,
         aiProvider: "banana-2.5", // 默认Fast版
-        bananaImageRoute: "normal",
+        bananaImageRoute: "stable", // 默认走尊享（stable）路线
         autoModeMultiplier: 1,
         sendShortcut: "enter",
         expandedPanelStyle: "transparent", // 默认透明样式
@@ -8383,8 +8383,10 @@ export const useAIChatStore = create<AIChatState>()(
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<AIChatState>),
-        // imageOnly 开关已不在对话框中暴露，避免历史持久化把用户锁在“仅图片”模式
+        // imageOnly 开关已不在对话框中暴露，避免历史持久化把用户锁在"仅图片"模式
         imageOnly: currentState.imageOnly,
+        // 每次重新进入都重置为尊享路线，不沿用上次持久化的路线选择
+        bananaImageRoute: "stable",
       }),
     }
   )

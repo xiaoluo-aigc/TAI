@@ -375,7 +375,10 @@ export class VideoProviderService {
       return sourceUrl;
     }
 
-    const response = await fetch(sourceUrl);
+    const response = await fetchWithTimeout(sourceUrl, {
+      method: 'GET',
+      timeout: IMAGE_FETCH_TIMEOUT,
+    });
     if (!response.ok) {
       throw new ServiceUnavailableException(
         `视频拉取失败: HTTP ${response.status}`
@@ -2419,8 +2422,9 @@ export class VideoProviderService {
     this.logProviderPayload("kling", payload);
     this.logger.log(`🎬 Kling: mode=${videoMode}, images=${imageCount}, endpoint=${endpoint}`);
 
-    let response = await fetch(endpoint, {
+    let response = await fetchWithTimeout(endpoint, {
       method: "POST",
+      timeout: DEFAULT_FETCH_TIMEOUT,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -2451,8 +2455,9 @@ export class VideoProviderService {
             `Kling model kling-v2-1 is not supported upstream, retrying with kling-v2-6: mode=${videoMode}`
           );
           this.logProviderPayload("kling-retry-model-fallback", fallbackPayload);
-          response = await fetch(endpoint, {
+          response = await fetchWithTimeout(endpoint, {
             method: "POST",
+            timeout: DEFAULT_FETCH_TIMEOUT,
             headers: {
               Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
@@ -2495,8 +2500,9 @@ export class VideoProviderService {
             `Kling upstream failed to fetch image URL, retrying with data-url payload: mode=${videoMode}`
           );
           this.logProviderPayload("kling-retry-dataurl", retryPayload);
-          response = await fetch(endpoint, {
+          response = await fetchWithTimeout(endpoint, {
             method: "POST",
+            timeout: DEFAULT_FETCH_TIMEOUT,
             headers: {
               Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
@@ -2562,7 +2568,9 @@ export class VideoProviderService {
       let data: any = null;
 
       for (const endpoint of endpoints) {
-        const response = await fetch(endpoint, {
+        const response = await fetchWithTimeout(endpoint, {
+          method: 'GET',
+          timeout: QUERY_FETCH_TIMEOUT,
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         const result = await response.json().catch(() => ({}));
@@ -2970,8 +2978,9 @@ export class VideoProviderService {
       )}, endpoint=${endpoint}`
     );
 
-    const response = await fetch(endpoint, {
+    const response = await fetchWithTimeout(endpoint, {
       method: "POST",
+      timeout: DEFAULT_FETCH_TIMEOUT,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -3000,9 +3009,11 @@ export class VideoProviderService {
 
   private async queryVidu(taskId: string, apiKey: string) {
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `https://models.kapon.cloud/vidu/ent/v2/tasks/${taskId}/creations`,
         {
+          method: 'GET',
+          timeout: QUERY_FETCH_TIMEOUT,
           headers: { Authorization: `Bearer ${apiKey}` },
         }
       );
@@ -3322,8 +3333,9 @@ export class VideoProviderService {
       )}, endpoint=${endpoint}`
     );
 
-    const response = await fetch(endpoint, {
+    const response = await fetchWithTimeout(endpoint, {
       method: "POST",
+      timeout: DEFAULT_FETCH_TIMEOUT,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -3350,9 +3362,11 @@ export class VideoProviderService {
    */
   private async queryViduQ3Pro(taskId: string, apiKey: string) {
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `https://models.kapon.cloud/vidu/ent/v2/tasks/${taskId}/creations`,
         {
+          method: 'GET',
+          timeout: QUERY_FETCH_TIMEOUT,
           headers: { Authorization: `Bearer ${apiKey}` },
         }
       );

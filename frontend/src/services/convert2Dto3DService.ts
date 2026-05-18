@@ -81,9 +81,22 @@ export async function convert2Dto3D(
       const errorData = await response.json().catch(() => ({}));
       const rawErrorMessage =
         extractApiErrorMessage(errorData) || `HTTP ${response.status}`;
-      const errorMessage = isInsufficientCreditsMessage(rawErrorMessage)
-        ? "积分不足，2D转3D 需要 200 积分，请先充值后重试"
-        : rawErrorMessage;
+      let errorMessage = rawErrorMessage;
+      const lower = String(rawErrorMessage).toLowerCase();
+      if (
+        response.status === 524 ||
+        response.status === 504 ||
+        lower.includes('timeout') ||
+        lower.includes('timed out') ||
+        lower.includes('gateway timeout')
+      ) {
+        errorMessage = '2D转3D处理超时（Hunyuan3D 需要较长时间），请稍后重试。';
+      } else if (response.status >= 500) {
+        errorMessage = '2D转3D服务暂时不可用，请稍后重试。';
+      }
+      if (isInsufficientCreditsMessage(rawErrorMessage)) {
+        errorMessage = "积分不足，2D转3D 需要 200 积分，请先充值后重试";
+      }
       logger.error("2D to 3D conversion failed", {
         status: response.status,
         error: errorMessage,

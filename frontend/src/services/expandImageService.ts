@@ -51,7 +51,19 @@ export async function expandImage(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      const errorMessage = errorData?.message || `HTTP ${response.status}`;
+      let errorMessage = errorData?.message || `HTTP ${response.status}`;
+      const lower = String(errorMessage).toLowerCase();
+      if (
+        response.status === 524 ||
+        response.status === 504 ||
+        lower.includes('timeout') ||
+        lower.includes('timed out') ||
+        lower.includes('gateway timeout')
+      ) {
+        errorMessage = '扩图处理超时（ComfyUI 需要较长时间），请简化参数或稍后重试。';
+      } else if (response.status >= 500) {
+        errorMessage = '扩图服务暂时不可用，请稍后重试。';
+      }
       logger.error("Expand image failed", {
         status: response.status,
         error: errorMessage,

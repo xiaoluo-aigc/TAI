@@ -258,6 +258,8 @@ export class Sora2VideoService {
     if (options.url) payload.url = options.url;
     if (options.fromTask) payload.from_task = options.fromTask;
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SORA2_FETCH_TIMEOUT_MS);
     const response = await fetch(`${this.apiBaseApimart}/v1/videos/generations`, {
       method: "POST",
       headers: {
@@ -265,7 +267,9 @@ export class Sora2VideoService {
         Authorization: `Bearer ${this.apiKeyApimart}`,
       },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -295,6 +299,8 @@ export class Sora2VideoService {
     if (!this.apiKeyApimart) {
       throw new ServiceUnavailableException("APIMart Sora2 API Key 未配置");
     }
+    const queryController = new AbortController();
+    const queryTimer = setTimeout(() => queryController.abort(), SORA2_APIMART_FETCH_TIMEOUT_MS);
     const response = await fetch(
       `${this.apiBaseApimart}/v1/characters_tasks/${encodeURIComponent(taskId)}`,
       {
@@ -302,8 +308,10 @@ export class Sora2VideoService {
         headers: {
           Authorization: `Bearer ${this.apiKeyApimart}`,
         },
+        signal: queryController.signal,
       }
     );
+    clearTimeout(queryTimer);
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -343,6 +351,8 @@ export class Sora2VideoService {
       throw new BadRequestException("taskId 不能为空");
     }
 
+    const pollController = new AbortController();
+    const pollTimer = setTimeout(() => pollController.abort(), SORA2_APIMART_FETCH_TIMEOUT_MS);
     const response = await fetch(
       `${this.apiBaseApimart}/v1/tasks/${encodeURIComponent(taskId.trim())}?language=zh&t=${Date.now()}`,
       {
@@ -352,8 +362,10 @@ export class Sora2VideoService {
           "Cache-Control": "no-cache",
           Pragma: "no-cache",
         },
+        signal: pollController.signal,
       }
     );
+    clearTimeout(pollTimer);
 
     const dataRaw = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -656,6 +668,8 @@ export class Sora2VideoService {
     );
     this.logger.log(`APIMart Sora2 完整请求体: ${JSON.stringify(createPayload)}`);
 
+    const createController = new AbortController();
+    const createTimer = setTimeout(() => createController.abort(), SORA2_FETCH_TIMEOUT_MS);
     const response = await fetch(`${this.apiBaseApimart}/v1/videos/generations`, {
       method: "POST",
       headers: {
@@ -663,7 +677,9 @@ export class Sora2VideoService {
         Authorization: `Bearer ${this.apiKeyApimart}`,
       },
       body: JSON.stringify(createPayload),
+      signal: createController.signal,
     });
+    clearTimeout(createTimer);
 
     const createResult = await response.json().catch(() => ({}));
     this.logger.log(

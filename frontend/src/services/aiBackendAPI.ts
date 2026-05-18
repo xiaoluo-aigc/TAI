@@ -257,6 +257,36 @@ const TEXT_CHAT_TIMEOUT_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const normalizeAIErrorMessage = (
+  rawMessage?: string,
+  status?: number
+): string => {
+  const normalized = typeof rawMessage === 'string' ? rawMessage.trim() : '';
+  const lower = normalized.toLowerCase();
+
+  // 524 或任何包含 timeout/gateway timeout 的错误
+  if (
+    status === 524 ||
+    lower.includes('524') ||
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('gateway timeout') ||
+    lower.includes('服务器处理超时')
+  ) {
+    return '图像生成处理超时（已等待 15 分钟），请简化参数后重试。';
+  }
+
+  // 500/502/503/504 统一提示
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    return '图像供应商服务暂时不可用，请稍后重试。';
+  }
+
+  if (normalized) return normalized;
+  return '网络异常，请稍后重试';
+};
+
+const normalizeImageGenerationErrorMessage = normalizeAIErrorMessage;
+
 const parseHttpStatusFromErrorCode = (code?: string): number | null => {
   if (!code) return null;
   const match = code.match(/^HTTP_(\d{3})$/);
@@ -413,7 +443,10 @@ async function performGenerateImageRequest(
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeImageGenerationErrorMessage(
+            errorData?.message,
+            response.status
+          ),
           timestamp: new Date(),
         },
       };
@@ -618,7 +651,10 @@ async function performEditImageRequest(
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeImageGenerationErrorMessage(
+            errorData?.message,
+            response.status
+          ),
           timestamp: new Date(),
         },
       };
@@ -804,7 +840,10 @@ async function performBlendImagesRequest(
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeImageGenerationErrorMessage(
+            errorData?.message,
+            response.status
+          ),
           timestamp: new Date(),
         },
       };
@@ -997,7 +1036,7 @@ export async function midjourneyActionViaAPI(
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeAIErrorMessage(errorData?.message, response.status),
           timestamp: new Date(),
         },
       };
@@ -1073,7 +1112,7 @@ export async function midjourneyModalViaAPI(
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeAIErrorMessage(errorData?.message, response.status),
           timestamp: new Date(),
         },
       };
@@ -1143,7 +1182,7 @@ export async function analyzeImageViaAPI(
         success: false,
         error: {
           code: `HTTP_${response.status}`,
-          message: errorData?.message || `HTTP ${response.status}`,
+          message: normalizeAIErrorMessage(errorData?.message, response.status),
           timestamp: new Date(),
         },
       };

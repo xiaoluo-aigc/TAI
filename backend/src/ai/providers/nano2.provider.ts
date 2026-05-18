@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from './ai-provider.interface';
 import { Nano2Service } from '../services/nano2.service';
+import { TencentVodAigcService } from '../services/tencent-vod-aigc.service';
 
 type BananaImageRoute = 'normal' | 'stable';
 type GptImage2Quality = 'auto' | 'low' | 'medium' | 'high';
@@ -20,6 +21,7 @@ export class Nano2Provider implements IAIProvider {
   constructor(
     private readonly config: ConfigService,
     private readonly nano2Service: Nano2Service,
+    private readonly tencentVodAigcService: TencentVodAigcService,
   ) {}
 
   async initialize(): Promise<void> {
@@ -50,7 +52,8 @@ export class Nano2Provider implements IAIProvider {
     if (nested) return nested;
     const legacy = this.normalizeRoute(providerOptions?.bananaImageRoute);
     if (legacy) return legacy;
-    return 'normal';
+    // GPT Image 2 默认按尊享（stable）路线走，不走普通路线
+    return 'stable';
   }
 
   private isGptImage2Model(model: string): boolean {
@@ -197,6 +200,11 @@ export class Nano2Provider implements IAIProvider {
     });
 
     let finalResolution = normalizedResolution;
+
+    // TODO: stable 路由可接入腾讯云 VOD AIGC 图像生成以获得更稳定的排队和 15 分钟超长轮询。
+    //       需先确认 GPT Image 2 在腾讯云 VOD AIGC 的 modelName / modelVersion 映射。
+    //       当前 stable 路由仍走 Apimart 的 gpt-image-2-official。
+
     let result;
     try {
       result = await this.nano2Service.generateImage(buildSubmitRequest(finalResolution));

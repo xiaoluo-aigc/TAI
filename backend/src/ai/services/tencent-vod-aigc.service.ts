@@ -425,12 +425,30 @@ export class TencentVodAigcService {
     };
   }
 
-  async waitForImageResult(taskId: string): Promise<TencentVodAigcTaskStatus> {
+  async waitForImageResult(
+    taskId: string,
+    options?: {
+      maxWaitMs?: number;
+      maxPollAttempts?: number;
+    },
+  ): Promise<TencentVodAigcTaskStatus> {
+    const maxPollAttempts = options?.maxPollAttempts ?? this.maxPollAttempts;
+    const maxWaitMs = options?.maxWaitMs;
+    const startedAt = Date.now();
+
     await this.sleep(this.initialDelayMs);
 
     let lastResult: TencentVodAigcTaskStatus | null = null;
+    let successWithoutUrlAttempts = 0;
+    const successWithoutUrlRetryLimit = 8;
 
-    for (let attempt = 1; attempt <= this.maxPollAttempts; attempt++) {
+    for (let attempt = 1; attempt <= maxPollAttempts; attempt++) {
+      if (maxWaitMs !== undefined && Date.now() - startedAt >= maxWaitMs) {
+        throw new ServiceUnavailableException(
+          `Tencent AIGC task ${taskId} polling timeout after ${maxWaitMs}ms. Last status: ${lastResult?.status || 'UNKNOWN'}`,
+        );
+      }
+
       const result = await this.queryTask(taskId);
       lastResult = result;
       const status = this.normalizeStatus(result.status);
@@ -439,9 +457,19 @@ export class TencentVodAigcService {
         if (result.imageUrl) {
           return result;
         }
-        throw new BadGatewayException(
-          `Tencent AIGC task ${taskId} completed but image URL is missing`,
+
+        successWithoutUrlAttempts += 1;
+        if (successWithoutUrlAttempts >= successWithoutUrlRetryLimit) {
+          throw new BadGatewayException(
+            `Tencent AIGC task ${taskId} completed but image URL is missing after ${successWithoutUrlAttempts} success-state retries`,
+          );
+        }
+
+        this.logger.warn(
+          `Tencent AIGC task ${taskId} reached success without image URL (attempt ${successWithoutUrlAttempts}/${successWithoutUrlRetryLimit}), continue polling...`,
         );
+        await this.sleep(this.pollIntervalMs);
+        continue;
       }
 
       if (status === 'failed') {
@@ -454,7 +482,7 @@ export class TencentVodAigcService {
     }
 
     throw new ServiceUnavailableException(
-      `Tencent AIGC task ${taskId} polling timeout after ${this.maxPollAttempts} attempts. Last status: ${lastResult?.status || 'UNKNOWN'}`,
+      `Tencent AIGC task ${taskId} polling timeout after ${maxPollAttempts} attempts. Last status: ${lastResult?.status || 'UNKNOWN'}`,
     );
   }
 
