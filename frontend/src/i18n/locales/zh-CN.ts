@@ -71,7 +71,7 @@ const zhCN = {
       title: "智绘画板",
       text: "来体验这个智能画板应用！",
     },
-    icp: "粤ICP备2026004877号-1",
+    icp: "粤ICP备2023120022号",
   },
   auth: {
     modal: {

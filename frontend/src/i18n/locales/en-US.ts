@@ -71,7 +71,7 @@ const enUS = {
       title: "TAI",
       text: "Try this intelligent canvas app!",
     },
-    icp: "ICP License: 粤ICP备2026004877号-1",
+    icp: "ICP License: 粤ICP备2023120022号",
   },
   auth: {
     modal: {
