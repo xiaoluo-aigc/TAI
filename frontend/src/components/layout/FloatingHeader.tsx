@@ -2236,7 +2236,7 @@ const FloatingHeader: React.FC = () => {
                         setIsHelpMenuOpen(false);
                       }}
                     >
-                      闂傚倸鍊峰ù鍥敋瑜嶉～婵嬫晝閸岋妇绋忔繝銏ｅ煐閸旀牠宕曞Δ浣典簻闁哄洦顨呮禍楣冩⒑鐠団€虫灍濠电偛锕妴浣糕槈濡攱顫嶅┑顔斤公缁查箖鎮橀崘顔解拻濞撴埃鍋撻柍褜鍓涢崑娑㈡嚐椤栨稒娅犻柟缁㈠枟閻?
+                      {t("workspace.header.pricingCatalog")}
                     </button>
                     <button
                       type='button'

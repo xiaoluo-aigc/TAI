@@ -158,6 +158,7 @@ const enUS = {
       help: "Help",
       userManual: "User Manual",
       changelog: "Changelog",
+      pricingCatalog: "Pricing Catalog",
       settings: "Settings",
       myCredits: "My Credits",
       backHome: "Back to Home",

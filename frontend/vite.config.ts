@@ -67,6 +67,8 @@ export default defineConfig({
     allowedHosts: [
       '.trycloudflare.com',  // 允许所有 trycloudflare.com 的子域名
       '.tanvas.cn',          // 允许所有 tanvas.cn 的子域名（Cloudflare Tunnel）
+      'tgtai.com',           // 主域名
+      'www.tgtai.com',       // www 子域名
       'rhyuvfgbjqxc.sealoshzh.site',
       'localhost',
       '127.0.0.1',

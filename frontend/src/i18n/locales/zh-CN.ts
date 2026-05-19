@@ -158,6 +158,7 @@ const zhCN = {
       help: "帮助",
       userManual: "用户手册",
       changelog: "更新日志",
+      pricingCatalog: "价格目录",
       settings: "设置",
       myCredits: "我的积分",
       backHome: "返回首页",
