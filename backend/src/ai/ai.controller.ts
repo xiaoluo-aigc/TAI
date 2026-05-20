@@ -6151,10 +6151,36 @@ export class AiController {
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    const requestUserId = this.resolveRequestUserId(req) || userId;
+    const bananaImageMode = this.isBananaProviderName(providerName)
+      ? await this.getBananaImageProviderMode(dto.providerOptions)
+      : 'auto';
+    const tencentForcedBanana =
+      this.isBananaProviderName(providerName) && bananaImageMode === 'tencent';
 
-    // 如果提供了 URL，先下载图片
     let sourceImage = dto.sourceImage;
-    if (dto.sourceImageUrl && !sourceImage) {
+    if (tencentForcedBanana) {
+      const fallbackUrl =
+        !dto.sourceImageUrl && dto.sourceImage && /^https?:\/\//i.test(dto.sourceImage)
+          ? dto.sourceImage
+          : dto.sourceImageUrl;
+
+      if (sourceImage && !fallbackUrl) {
+        sourceImage = sourceImage;
+      } else if (fallbackUrl) {
+        sourceImage = fallbackUrl;
+      }
+
+      if (!sourceImage) {
+        throw new BadRequestException('编辑图片接口需要提供 sourceImage 或 sourceImageUrl');
+      }
+
+      sourceImage = await this.normalizeSourceImageForTencentForced(
+        sourceImage,
+        requestUserId,
+        'edit-image-async',
+      );
+    } else if (dto.sourceImageUrl && !sourceImage) {
       sourceImage = await this.fetchImageAsDataUrl(dto.sourceImageUrl);
     }
 
@@ -6187,12 +6213,33 @@ export class AiController {
     const parentRequestId = this.getRequestId(req);
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+    const requestUserId = this.resolveRequestUserId(req) || userId;
+    const bananaImageMode = this.isBananaProviderName(providerName)
+      ? await this.getBananaImageProviderMode(dto.providerOptions)
+      : 'auto';
+    const tencentForcedBanana =
+      this.isBananaProviderName(providerName) && bananaImageMode === 'tencent';
 
-    // 如果提供了 URL，先下载图片
     let sourceImages = dto.sourceImages || [];
-    if (dto.sourceImageUrls && dto.sourceImageUrls.length > 0 && sourceImages.length === 0) {
+    if (tencentForcedBanana) {
+      const tencentSourceCandidates = sourceImages.length
+        ? sourceImages
+        : dto.sourceImageUrls && dto.sourceImageUrls.length > 0
+        ? dto.sourceImageUrls
+        : [];
+
       sourceImages = await Promise.all(
-        dto.sourceImageUrls.map((url) => this.fetchImageAsDataUrl(url))
+        tencentSourceCandidates.map((value, index) =>
+          this.normalizeSourceImageForTencentForced(
+            value,
+            requestUserId,
+            `blend-images-async#${index + 1}`,
+          ),
+        ),
+      );
+    } else if (dto.sourceImageUrls && dto.sourceImageUrls.length > 0 && sourceImages.length === 0) {
+      sourceImages = await Promise.all(
+        dto.sourceImageUrls.map((url) => this.fetchImageAsDataUrl(url)),
       );
     }
 
