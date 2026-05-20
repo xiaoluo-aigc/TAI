@@ -34,16 +34,26 @@ export class Nano2Service {
   private readonly baseUrl = 'https://api.apimart.ai/v1/images/generations';
   private readonly maxSubmitAttempts = 2;
   private readonly submitRetryDelayMs = 1200;
+  private readonly timeoutMs: number;
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.get<string>('NANO2_API_KEY') || '';
     if (!this.apiKey) {
       this.logger.warn('NANO2_API_KEY not configured');
     }
+    this.timeoutMs = this.parsePositiveInt(this.config.get<string>('NANO2_API_TIMEOUT_MS'), 30_000);
   }
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private parsePositiveInt(value: string | undefined, fallback: number): number {
+    const num = Number(value);
+    if (Number.isFinite(num) && num > 0) {
+      return Math.floor(num);
+    }
+    return fallback;
   }
 
   private async extractErrorDetails(response: Response): Promise<{
@@ -138,6 +148,9 @@ export class Nano2Service {
 
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= this.maxSubmitAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
       try {
         const response = await fetch(this.baseUrl, {
           method: 'POST',
@@ -146,6 +159,7 @@ export class Nano2Service {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
+          signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -180,6 +194,12 @@ export class Nano2Service {
       } catch (error: any) {
         lastError =
           error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'Unknown error');
+
+        // 识别 AbortError（请求超时），转换为可重试的超时错误
+        if (lastError.name === 'AbortError') {
+          lastError = new Error(`Nano2 submit request timeout after ${this.timeoutMs}ms`);
+        }
+
         const isHttpError = /^HTTP\s\d{3}/.test(lastError.message);
         const shouldRetryNetworkLike = !isHttpError && attempt < this.maxSubmitAttempts;
         if (shouldRetryNetworkLike) {
@@ -190,6 +210,8 @@ export class Nano2Service {
           continue;
         }
         throw lastError;
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 
@@ -201,38 +223,51 @@ export class Nano2Service {
       throw new ServiceUnavailableException('Nano2 API key not configured');
     }
 
-    // 尝试 /v1/tasks/{taskId} 端点
-    const queryUrl = `https://api.apimart.ai/v1/tasks/${taskId}`;
-    const response = await fetch(queryUrl, {
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
-    if (!response.ok) {
-      throw new Error(`Failed to query task: HTTP ${response.status}`);
+    try {
+      // 尝试 /v1/tasks/{taskId} 端点
+      const queryUrl = `https://api.apimart.ai/v1/tasks/${taskId}`;
+      const response = await fetch(queryUrl, {
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to query task: HTTP ${response.status}`);
+      }
+
+      const json = await response.json();
+      this.logger.log(`Nano2 task query raw response: ${JSON.stringify(json)}`);
+
+      // 解析响应 - API 返回格式: { code: 200, data: { status, result: { images: [{ url: [...] }] } } }
+      const data = json.data || json;
+
+      // 提取图片 URL - 格式是 result.images[0].url[0]
+      let imageUrl: string | undefined;
+      if (data.result?.images?.[0]?.url) {
+        const urlField = data.result.images[0].url;
+        imageUrl = Array.isArray(urlField) ? urlField[0] : urlField;
+      } else {
+        imageUrl = data.image_url || data.imageUrl;
+      }
+
+      this.logger.log(`Nano2 parsed - status: ${data.status}, imageUrl: ${imageUrl || 'not found'}`);
+
+      return {
+        status: data.status || 'processing',
+        imageUrl,
+      };
+    } catch (error: any) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new ServiceUnavailableException(`Nano2 query task timeout after ${this.timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const json = await response.json();
-    this.logger.log(`Nano2 task query raw response: ${JSON.stringify(json)}`);
-
-    // 解析响应 - API 返回格式: { code: 200, data: { status, result: { images: [{ url: [...] }] } } }
-    const data = json.data || json;
-
-    // 提取图片 URL - 格式是 result.images[0].url[0]
-    let imageUrl: string | undefined;
-    if (data.result?.images?.[0]?.url) {
-      const urlField = data.result.images[0].url;
-      imageUrl = Array.isArray(urlField) ? urlField[0] : urlField;
-    } else {
-      imageUrl = data.image_url || data.imageUrl;
-    }
-
-    this.logger.log(`Nano2 parsed - status: ${data.status}, imageUrl: ${imageUrl || 'not found'}`);
-
-    return {
-      status: data.status || 'processing',
-      imageUrl,
-    };
   }
 }
