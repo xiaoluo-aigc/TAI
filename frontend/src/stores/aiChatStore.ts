@@ -3036,7 +3036,7 @@ export const useAIChatStore = create<AIChatState>()(
                   ? {
                       ...msg,
                       generationStatus: {
-                        ...msg.generationStatus,
+                        ...(msg.generationStatus || {}),
                         ...status,
                       } as any,
                     }
@@ -3051,7 +3051,7 @@ export const useAIChatStore = create<AIChatState>()(
             const message = context.messages.find((m) => m.id === messageId);
             if (message) {
               message.generationStatus = {
-                ...message.generationStatus,
+                ...(message.generationStatus || {}),
                 ...status,
               } as any;
             }

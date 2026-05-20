@@ -40,12 +40,14 @@ export class TemplateQueryDto {
 
 export class CreateTemplateDto {
   @ApiPropertyOptional({ description: "模板名称" })
+  @IsOptional()
   @IsString()
-  name!: string;
+  name?: string;
 
   @ApiPropertyOptional({ description: "分类" })
+  @IsOptional()
   @IsString()
-  category!: string;
+  category?: string;
 
   @ApiPropertyOptional({ description: "描述" })
   @IsOptional()

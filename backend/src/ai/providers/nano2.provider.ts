@@ -345,26 +345,62 @@ export class Nano2Provider implements IAIProvider {
   }
 
   async editImage(request: any): Promise<any> {
-    throw new Error('Nano2 does not support image editing');
+    return {
+      success: false,
+      error: {
+        code: 'NOT_SUPPORTED',
+        message: 'Nano2 provider does not support image editing.',
+      },
+    };
   }
 
   async blendImages(request: any): Promise<any> {
-    throw new Error('Nano2 does not support image blending');
+    return {
+      success: false,
+      error: {
+        code: 'NOT_SUPPORTED',
+        message: 'Nano2 provider does not support image blending.',
+      },
+    };
   }
 
   async analyzeImage(request: any): Promise<any> {
-    throw new Error('Nano2 does not support image analysis');
+    return {
+      success: false,
+      error: {
+        code: 'NOT_SUPPORTED',
+        message: 'Nano2 provider does not support image analysis.',
+      },
+    };
   }
 
   async generateText(request: any): Promise<any> {
-    throw new Error('Nano2 does not support text generation');
+    return {
+      success: false,
+      error: {
+        code: 'NOT_SUPPORTED',
+        message: 'Nano2 provider does not support text generation. Please use Banana or Gemini provider for text chat.',
+      },
+    };
   }
 
   async selectTool(request: any): Promise<any> {
-    throw new Error('Nano2 does not support tool selection');
+    return {
+      success: false,
+      error: {
+        code: 'NOT_SUPPORTED',
+        message: 'Nano2 provider does not support tool selection.',
+      },
+    };
   }
 
   async generatePaperJS(request: any): Promise<any> {
-    throw new Error('Nano2 does not support PaperJS generation');
+    return {
+      success: false,
+      error: {
+        code: 'NOT_SUPPORTED',
+        message: 'Nano2 provider does not support Paper.js generation.',
+      },
+    };
   }
 }

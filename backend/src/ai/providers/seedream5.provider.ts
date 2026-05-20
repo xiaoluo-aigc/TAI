@@ -100,14 +100,32 @@ export class Seedream5Provider implements IAIProvider {
   }
 
   async generateText(request: any): Promise<any> {
-    throw new Error('Seedream5 does not support text generation');
+    return {
+      success: false,
+      error: {
+        code: 'NOT_SUPPORTED',
+        message: 'Seedream5 provider does not support text generation. Please use Banana or Gemini provider for text chat.',
+      },
+    };
   }
 
   async selectTool(request: any): Promise<any> {
-    throw new Error('Seedream5 does not support tool selection');
+    return {
+      success: false,
+      error: {
+        code: 'NOT_SUPPORTED',
+        message: 'Seedream5 provider does not support tool selection.',
+      },
+    };
   }
 
   async generatePaperJS(request: any): Promise<any> {
-    throw new Error('Seedream5 does not support PaperJS generation');
+    return {
+      success: false,
+      error: {
+        code: 'NOT_SUPPORTED',
+        message: 'Seedream5 provider does not support Paper.js generation.',
+      },
+    };
   }
 }

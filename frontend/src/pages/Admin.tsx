@@ -6440,7 +6440,7 @@ function TemplatesTab() {
   const handleSave = async () => {
     try {
       let payload: any = {
-        name: formData.name,
+        name: formData.name || undefined,
         category: formData.category || undefined,
         description: formData.description || undefined,
         thumbnail: formData.thumbnail || undefined,
@@ -6449,9 +6449,14 @@ function TemplatesTab() {
         tags: applyTemplateScopeToTags(editingTemplate?.tags, formData.templateScope),
       };
 
+      // 清理空值
+      Object.keys(payload).forEach(key => {
+        if (payload[key] === undefined) delete payload[key];
+      });
+
       if (formData.templateJsonKey) {
         payload.templateJsonKey = formData.templateJsonKey;
-      } else {
+      } else if (formData.templateData && formData.templateData.trim()) {
         let templateData;
         try {
           templateData = JSON.parse(formData.templateData);
@@ -6461,6 +6466,7 @@ function TemplatesTab() {
         }
         payload.templateData = templateData;
       }
+      // templateData 为空时不发送该字段
 
       if (editingTemplate) {
         await updateTemplate(editingTemplate.id, payload);
@@ -6525,7 +6531,7 @@ function TemplatesTab() {
     }
   };
 
-  // 上传文件到 OSS（使用 presign）
+  // 上传文件到 OSS（使用 presign PUT 方式）
   const uploadFileToOSS = async (
     file: File,
     dir = "templates/thumbs/",
@@ -6533,8 +6539,6 @@ function TemplatesTab() {
   ): Promise<string> => {
     const token = localStorage.getItem("authToken");
 
-    // 总是使用 credentials: 'include'，以便浏览器发送 cookie（后端使用 cookie 验证）
-    // 同时如果 localStorage 中存在 token，则也带上 Authorization 作为备选认证方式
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -6546,10 +6550,15 @@ function TemplatesTab() {
         ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
         : "http://localhost:4000";
 
+    // 生成文件 key
+    const key = `${dir.replace(/\/+$/, '')}/${Date.now()}_${file.name.replace(/\s+/g, "_")}`;
+    const contentType = file.type || "application/octet-stream";
+
+    // 调用 presign 接口获取上传 URL（新的 PUT 方式）
     const resp = await fetchWithAuth(`${API_BASE}/api/uploads/presign`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ dir, maxSize }),
+      body: JSON.stringify({ key, contentType }),
     });
 
     if (!resp.ok) {
@@ -6560,36 +6569,27 @@ function TemplatesTab() {
     }
 
     const presign = await resp.json();
-    if (!presign || !presign.host || !presign.dir) {
+    if (!presign || !presign.uploadUrl) {
       throw new Error("上传凭证格式错误");
     }
 
-    const key = `${presign.dir}${Date.now()}_${file.name.replace(/\s+/g, "_")}`;
-    const form = new FormData();
-    form.append("key", key);
-    form.append("policy", presign.policy);
-    form.append("OSSAccessKeyId", presign.accessId);
-    form.append("signature", presign.signature);
-    form.append("file", file);
-
-    const uploadResp = await fetchWithAuth(presign.host, {
-      method: "POST",
-      body: form,
-      auth: "omit",
-      allowRefresh: false,
-      credentials: "omit",
+    // 使用 PUT 方式直接上传到 OSS
+    const uploadResp = await fetch(presign.uploadUrl, {
+      method: "PUT",
+      body: file,
+      headers: {
+        "Content-Type": contentType,
+      },
     });
 
     if (!uploadResp.ok) {
-      const errorText = await uploadResp.text().catch(() => "");
       throw new Error(
-        `上传到OSS失败 (${uploadResp.status}): ${
-          errorText || uploadResp.statusText
-        }`
+        `上传到OSS失败 (${uploadResp.status})`
       );
     }
 
-    return `${presign.host}/${key}`;
+    // 返回公共访问 URL
+    return presign.publicUrl || `${presign.uploadUrl.split('?')[0]}`;
   };
 
   const handleImageFileChange = async (file?: File) => {
