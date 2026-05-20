@@ -371,6 +371,8 @@ export class OssService {
       'volces.com',             // 字节/Seedance 1.5 Pro / 火山引擎
       'tencentcos.cn',          // 腾讯 COS（混元 3D 输出）
       'myqcloud.com',           // 腾讯云通用域名
+      'qcloud.com',             // 腾讯云下载域名（含 vod-qcloud.com）
+      'vod-qcloud.com',         // 腾讯 VOD 临时资源常见域名
       'tgtai.com',              // Tanva CDN 域名（供 AI 上游服务访问）
     ];
 
