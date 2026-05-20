@@ -123,6 +123,19 @@ export class Nano2Provider implements IAIProvider {
     return /HTTP\s5\d\d/.test(message);
   }
 
+  private parsePositiveInt(raw: unknown, fallback: number): number {
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+      return Math.floor(raw);
+    }
+    if (typeof raw === 'string') {
+      const num = Number(raw);
+      if (Number.isFinite(num) && num > 0) {
+        return Math.floor(num);
+      }
+    }
+    return fallback;
+  }
+
   async generateImage(request: any): Promise<any> {
     const requestedModel =
       typeof request.model === 'string' && request.model.trim()
@@ -226,16 +239,33 @@ export class Nano2Provider implements IAIProvider {
 
     this.logger.log(`Nano2 task submitted: ${result.taskId}`);
 
-    const pollingWindowMs = 15 * 60 * 1000;
-    const pollIntervalMs = 3000;
-    const initialDelayMs = 10000;
+    // 从配置读取轮询参数，支持环境变量覆盖
+    const pollingWindowMs = this.parsePositiveInt(
+      this.config.get<string>('NANO2_POLL_MAX_WAIT_MS'),
+      15 * 60 * 1000,
+    );
+    const pollIntervalMs = this.parsePositiveInt(
+      this.config.get<string>('NANO2_POLL_INTERVAL_MS'),
+      3_000,
+    );
+    const initialDelayMs = this.parsePositiveInt(
+      this.config.get<string>('NANO2_POLL_INITIAL_DELAY_MS'),
+      10_000,
+    );
+    const maxPollAttempts = this.parsePositiveInt(
+      this.config.get<string>('NANO2_POLL_MAX_ATTEMPTS'),
+      300,
+    );
     const startedAt = Date.now();
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     await sleep(initialDelayMs);
 
     let attempt = 0;
-    while (Date.now() - startedAt < pollingWindowMs) {
+    let successWithoutUrlAttempts = 0;
+    const successWithoutUrlRetryLimit = 8;
+
+    while (Date.now() - startedAt < pollingWindowMs && attempt < maxPollAttempts) {
       attempt += 1;
       let taskResult;
       try {
@@ -272,11 +302,23 @@ export class Nano2Provider implements IAIProvider {
           };
         }
 
-        this.logger.warn(`Nano2 task ${result.taskId} succeeded but no imageUrl found`);
-        return {
-          success: false,
-          error: { message: 'Nano2 task completed but no image URL returned' },
-        };
+        // 成功但无 URL，额外容忍几次轮询
+        successWithoutUrlAttempts += 1;
+        if (successWithoutUrlAttempts >= successWithoutUrlRetryLimit) {
+          this.logger.error(
+            `Nano2 task ${result.taskId} completed but image URL is missing after ${successWithoutUrlAttempts} success-state retries`,
+          );
+          return {
+            success: false,
+            error: { message: 'Nano2 task completed but no image URL returned' },
+          };
+        }
+
+        this.logger.warn(
+          `Nano2 task ${result.taskId} reached success without image URL (attempt ${successWithoutUrlAttempts}/${successWithoutUrlRetryLimit}), continue polling...`,
+        );
+        await sleep(pollIntervalMs);
+        continue;
       }
 
       if (taskResult.status === 'failed' || taskResult.status === 'error') {
@@ -289,9 +331,16 @@ export class Nano2Provider implements IAIProvider {
       await sleep(pollIntervalMs);
     }
 
+    // 区分超时原因
+    if (attempt >= maxPollAttempts) {
+      return {
+        success: false,
+        error: { message: `Nano2 image generation timeout after ${maxPollAttempts} polling attempts` },
+      };
+    }
     return {
       success: false,
-      error: { message: 'Nano2 image generation timeout' },
+      error: { message: 'Nano2 image generation timeout after 15 minutes' },
     };
   }
 
