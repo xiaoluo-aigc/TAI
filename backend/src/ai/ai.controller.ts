@@ -2195,6 +2195,63 @@ export class AiController {
     };
   }
 
+  private async persistProviderImageUrlToManagedWithRetry(
+    imageUrl: string,
+    req: any,
+    userId: string,
+  ): Promise<{
+    url: string;
+    sourceImageUrl: string;
+    uploaded: boolean;
+    key?: string;
+    mimeType?: string;
+    bytes?: number;
+  }> {
+    const maxAttempts = 3;
+    const retryDelaysMs = [600, 1200];
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.persistProviderImageUrlToManaged(imageUrl, req, userId);
+      } catch (error) {
+        const shouldRetry =
+          attempt < maxAttempts && this.shouldRetryImagePersistError(error);
+        if (!shouldRetry) {
+          throw error;
+        }
+
+        const delayMs =
+          retryDelaysMs[attempt - 1] ??
+          retryDelaysMs[retryDelaysMs.length - 1] ??
+          0;
+        this.logger.warn(
+          `[persist-provider-image] attempt ${attempt}/${maxAttempts} failed for ${imageUrl}: ${this.summarizeError(
+            error,
+          )}; retry in ${delayMs}ms`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return this.persistProviderImageUrlToManaged(imageUrl, req, userId);
+  }
+
+  private shouldRetryImagePersistError(error: unknown): boolean {
+    if (error instanceof BadRequestException) {
+      return false;
+    }
+
+    const status = (error as any)?.status;
+    if (typeof status === 'number') {
+      return status === 408 || status === 429 || (status >= 500 && status <= 599);
+    }
+
+    const summary = this.summarizeError(error);
+    return /(timeout|timed out|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|HTTP 5\d{2})/i.test(
+      summary,
+    );
+  }
+
   private parseAndValidateAllowedImageUrl(urlValue: string): URL {
     let parsed: URL;
     try {
@@ -2985,7 +3042,7 @@ export class AiController {
                   try {
                     const managedResults = await Promise.all(
                       providerImageUrls.map((url) =>
-                        this.persistProviderImageUrlToManaged(url, req, userId),
+                        this.persistProviderImageUrlToManagedWithRetry(url, req, userId),
                       ),
                     );
                     const managedImageUrls = managedResults
@@ -3956,7 +4013,7 @@ export class AiController {
         dto.prompt || '扩图'
       );
 
-      const managed = await this.persistProviderImageUrlToManaged(
+      const managed = await this.persistProviderImageUrlToManagedWithRetry(
         expanded.imageUrl,
         req,
         userId,
