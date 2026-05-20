@@ -1,6 +1,7 @@
 import { BadGatewayException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageGenerationService } from '../image-generation.service';
+import { AIProviderFactory } from '../ai-provider.factory';
 import { OpenObserveTelemetryService } from '../../telemetry/openobserve-telemetry.service';
 import { captureTraceContext, runWithSpan, type PersistedTraceContext } from '../../telemetry/tracing';
 import { OssService } from '../../oss/oss.service';
@@ -11,6 +12,7 @@ import { Readable } from 'stream';
 
 export type ImageTaskType = 'generate' | 'edit' | 'blend' | 'expand';
 export type ImageTaskStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
+type BananaImageRoute = 'normal' | 'stable';
 
 /**
  * 根据任务类型和模型映射到 ServiceType
@@ -43,10 +45,137 @@ export class ImageTaskService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly imageGenService: ImageGenerationService,
+    private readonly providerFactory: AIProviderFactory,
     private readonly telemetryService: OpenObserveTelemetryService,
     private readonly oss: OssService,
     private readonly creditsService: CreditsService,
   ) {}
+
+  private extractProviderImagePayload(resultData: any): { imageUrl?: string; imageData?: string } {
+    if (!resultData || typeof resultData !== 'object') return {};
+
+    const directImageUrl =
+      typeof resultData.imageUrl === 'string' && /^https?:\/\//i.test(resultData.imageUrl)
+        ? resultData.imageUrl
+        : undefined;
+
+    const metadataImageUrl =
+      !directImageUrl &&
+      resultData.metadata &&
+      typeof resultData.metadata.imageUrl === 'string' &&
+      /^https?:\/\//i.test(resultData.metadata.imageUrl)
+        ? resultData.metadata.imageUrl
+        : undefined;
+
+    const imageUrl = directImageUrl || metadataImageUrl;
+    if (imageUrl) return { imageUrl };
+
+    const imageData =
+      typeof resultData.imageData === 'string' && resultData.imageData.trim().length > 0
+        ? resultData.imageData
+        : undefined;
+    if (imageData) return { imageData };
+
+    return {};
+  }
+
+  private normalizeBananaImageRoute(raw: unknown): BananaImageRoute | null {
+    if (typeof raw !== 'string') return null;
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized === 'normal' || normalized === 'apimart') return 'normal';
+    if (normalized === 'stable' || normalized === 'tencent') return 'stable';
+    return null;
+  }
+
+  private resolveTaskBananaImageRoute(requestData: any): BananaImageRoute | null {
+    const providerOptions =
+      requestData?.providerOptions && typeof requestData.providerOptions === 'object'
+        ? requestData.providerOptions
+        : null;
+
+    const nestedRoute = this.normalizeBananaImageRoute(providerOptions?.banana?.imageRoute);
+    if (nestedRoute) return nestedRoute;
+
+    const optionsLegacyRoute = this.normalizeBananaImageRoute(providerOptions?.bananaImageRoute);
+    if (optionsLegacyRoute) return optionsLegacyRoute;
+
+    return this.normalizeBananaImageRoute(requestData?.bananaImageRoute);
+  }
+
+  private resolveEffectiveProviderName(task: any, requestData: any): string {
+    const providerName = String(task.aiProvider || 'gemini').trim();
+    const normalizedProvider = providerName.toLowerCase();
+    const normalizedModel = String(requestData?.model || '').trim().toLowerCase();
+    const isGptImage2Model = normalizedModel.includes('gpt-image-2');
+
+    if (!isGptImage2Model) return providerName;
+
+    const route = this.resolveTaskBananaImageRoute(requestData);
+    if (route === 'stable' && !normalizedProvider.startsWith('banana')) {
+      this.logger.log(
+        `[ImageTask] forcing provider to banana for gpt-image-2 stable route (from=${providerName || 'gemini'})`,
+      );
+      return 'banana';
+    }
+
+    if (normalizedProvider === 'gemini') {
+      return 'nano2';
+    }
+
+    return providerName;
+  }
+
+  private async executeWithProviderOrGemini(taskType: ImageTaskType, task: any): Promise<any> {
+    const requestData = task.requestData as any;
+    const effectiveProviderName = this.resolveEffectiveProviderName(task, requestData);
+
+    if (effectiveProviderName && effectiveProviderName !== 'gemini') {
+      const provider = this.providerFactory.getProvider(requestData?.model, effectiveProviderName);
+      let providerResult: any;
+
+      switch (taskType) {
+        case 'generate':
+          providerResult = await provider.generateImage(requestData);
+          break;
+        case 'edit':
+          providerResult = await provider.editImage(requestData);
+          break;
+        case 'blend':
+          providerResult = await provider.blendImages(requestData);
+          break;
+        default:
+          throw new Error(`Unsupported task type for provider path: ${taskType}`);
+      }
+
+      if (!providerResult?.success || !providerResult?.data) {
+        const message =
+          providerResult?.error?.message || `Provider ${effectiveProviderName} returned failed response`;
+        throw new Error(message);
+      }
+
+      const normalized = this.extractProviderImagePayload(providerResult.data);
+      if (!normalized.imageUrl && !normalized.imageData) {
+        throw new BadGatewayException('Provider task succeeded but no image payload returned');
+      }
+
+      return {
+        ...providerResult.data,
+        ...normalized,
+      };
+    }
+
+    switch (taskType) {
+      case 'generate':
+        return this.imageGenService.generateImage(requestData);
+      case 'edit':
+        return this.imageGenService.editImage(requestData);
+      case 'blend':
+        return this.imageGenService.blendImages(requestData);
+      default:
+        throw new Error(`Unsupported task type: ${taskType}`);
+    }
+  }
 
   private extractBase64Payload(imageValue: string): string {
     const trimmed = imageValue.trim();
@@ -365,13 +494,13 @@ export class ImageTaskService {
 
           switch (taskType) {
             case 'generate':
-              result = await this.imageGenService.generateImage(task.requestData as any);
+              result = await this.executeWithProviderOrGemini('generate', task);
               break;
             case 'edit':
-              result = await this.imageGenService.editImage(task.requestData as any);
+              result = await this.executeWithProviderOrGemini('edit', task);
               break;
             case 'blend':
-              result = await this.imageGenService.blendImages(task.requestData as any);
+              result = await this.executeWithProviderOrGemini('blend', task);
               break;
             case 'expand':
               throw new Error('扩图功能暂未实现异步模式');
