@@ -74,22 +74,58 @@ export class OssService {
     return Math.max(1000, Math.min(600000, Math.floor(n)));
   }
 
+  private normalizeEndpoint(endpoint: string): string {
+    const trimmed = String(endpoint || '').trim();
+    if (!trimmed) return 'https://tos-cn-guangzhou.volces.com';
+    return trimmed.startsWith('http') ? trimmed : `https://${trimmed}`;
+  }
+
+  private resolveClientEndpoint(endpoint: string): {
+    endpoint: string;
+    isVolcengineTos: boolean;
+  } {
+    const normalized = this.normalizeEndpoint(endpoint);
+    try {
+      const parsed = new URL(normalized);
+      const hostname = parsed.hostname.toLowerCase();
+      const isVolcengineTos =
+        hostname.endsWith('.volces.com') || hostname.endsWith('.ivolces.com');
+
+      if (
+        isVolcengineTos &&
+        hostname.startsWith('tos-') &&
+        !hostname.startsWith('tos-s3-')
+      ) {
+        parsed.hostname = hostname.replace(/^tos-/, 'tos-s3-');
+      }
+
+      parsed.pathname = '';
+      parsed.search = '';
+      parsed.hash = '';
+
+      return {
+        endpoint: parsed.toString().replace(/\/+$/, ''),
+        isVolcengineTos,
+      };
+    } catch {
+      return { endpoint: normalized, isVolcengineTos: false };
+    }
+  }
+
   private client(): S3Client {
     if (this.cachedClient) return this.cachedClient;
     const { region, accessKeyId, accessKeySecret, endpoint } = this.conf;
-    
-    // 确保 endpoint 带有 http/https 前缀
-    const formattedEndpoint = endpoint.startsWith('http') ? endpoint : `https://${endpoint}`;
+    const resolvedEndpoint = this.resolveClientEndpoint(endpoint);
 
     this.cachedClient = new S3Client({
       region,
-      endpoint: formattedEndpoint,
+      endpoint: resolvedEndpoint.endpoint,
       credentials: {
         accessKeyId,
         secretAccessKey: accessKeySecret,
       },
-      // 火山 TOS 兼容 S3 接口，需要设为 true 使用路径样式
-      forcePathStyle: true,
+      // Volcengine TOS browser presign works better with bucket-host style.
+      forcePathStyle: resolvedEndpoint.isVolcengineTos ? false : true,
       requestHandler: {
         requestTimeout: this.timeoutMs(),
       } as any,
