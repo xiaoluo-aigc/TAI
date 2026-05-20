@@ -1874,7 +1874,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const BG_REMOVAL_MODELS = [
         "gemini-2.5-flash-image",
         "gemini-3.1-flash-image-preview",
-        "gemini-3-pro-image-preview",
+        "gemini-2.5-flash-image-preview",
       ] as const;
       const BG_REMOVAL_PROVIDER = "banana"; // 改用Pro版获得更好的质量
 
@@ -3175,7 +3175,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           );
 
           // 使用 Banana provider 进行高清放大（只有 Banana 支持 imageSize 参数）
-          const HD_UPSCALE_MODEL = "gemini-3-pro-image-preview";
+          const HD_UPSCALE_MODEL = "gemini-2.5-flash-image-preview";
           const HD_UPSCALE_PROVIDER = "banana";
 
           logger.info("📷 高清放大 - 使用 Banana editImage (4K)", {

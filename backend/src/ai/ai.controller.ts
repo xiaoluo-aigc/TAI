@@ -98,9 +98,9 @@ const PRIVILEGED_ADMIN_ROLES = new Set(['admin', 'normal_admin']);
 export class AiController {
   private readonly logger = new Logger(AiController.name);
   private readonly providerDefaultImageModels: Record<string, string> = {
-    gemini: 'gemini-3-pro-image-preview',
-    'gemini-pro': 'gemini-3-pro-image-preview',
-    banana: 'gemini-3-pro-image-preview',
+    gemini: 'gemini-2.5-flash-image-preview',
+    'gemini-pro': 'gemini-2.5-flash-image-preview',
+    banana: 'gemini-2.5-flash-image-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
     runninghub: 'runninghub-su-effect',
@@ -122,7 +122,7 @@ export class AiController {
   private readonly providerDefaultAnalyzeModels: Record<string, string> = {
     gemini: 'gemini-3.1-pro',
     'gemini-pro': 'gemini-3.1-pro',
-    banana: 'gemini-3-pro-image-preview',
+    banana: 'gemini-2.5-flash-image-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
     runninghub: 'gemini-3.1-pro',
@@ -1483,30 +1483,72 @@ export class AiController {
       const processingTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      this.logger.error(
-        `[${serviceType}] Operation failed - attempting credits refund: ` +
-        `userId=${userId}, apiUsageId=${apiUsageId}, processingTime=${processingTime}ms, ` +
-        `error=${this.summarizeError(error)}`
-      );
+      // GPT-image-2 及图片下方AI功能（极速抠图、高清放大、智能抠图、一键分层、
+      // 2D转3D、图片拓展、改文字等）失败时不返还积分
+      const NO_REFUND_SERVICE_TYPES = [
+        'gpt-image-2',
+        'background-removal',    // 极速抠图
+        'gemini-image-edit',     // 高清放大、智能抠图、一键分层、改文字
+        'gemini-2.5-image-edit', // 高清放大、智能抠图、一键分层、改文字（2.5模型）
+        'gemini-3.1-image-edit', // 高清放大、智能抠图、一键分层、改文字（3.1模型）
+        'expand-image',          // 图片拓展
+        'convert-2d-to-3d',      // 2D转3D
+      ];
+      const skipRefund = NO_REFUND_SERVICE_TYPES.includes(serviceType);
+
+      if (skipRefund) {
+        this.logger.warn(
+          `[${serviceType}] Operation failed - refund skipped (policy): ` +
+          `userId=${userId}, apiUsageId=${apiUsageId}, processingTime=${processingTime}ms, ` +
+          `error=${this.summarizeError(error)}`
+        );
+      } else {
+        this.logger.error(
+          `[${serviceType}] Operation failed - attempting credits refund: ` +
+          `userId=${userId}, apiUsageId=${apiUsageId}, processingTime=${processingTime}ms, ` +
+          `error=${this.summarizeError(error)}`
+        );
+      }
 
       if (apiUsageId) {
-        const refunded = await this.markFailedAndRefundWithRetry({
-          userId,
-          apiUsageId,
-          serviceType,
-          errorMessage,
-          processingTime,
-        });
-        if (refunded) {
-          this.logger.warn(
-            `[${serviceType}] Credits successfully refunded for failed operation: ` +
-              `userId=${userId}, apiUsageId=${apiUsageId}`,
-          );
+        if (skipRefund) {
+          // 只标记失败，不执行退款
+          try {
+            await this.creditsService.updateApiUsageStatus(
+              apiUsageId,
+              ApiResponseStatus.FAILED,
+              errorMessage,
+              processingTime,
+            );
+            this.logger.warn(
+              `[${serviceType}] Credits NOT refunded for failed operation (policy): ` +
+                `userId=${userId}, apiUsageId=${apiUsageId}`,
+            );
+          } catch (statusError) {
+            this.logger.error(
+              `[${serviceType}] Failed to mark failed status (no refund): ` +
+                `userId=${userId}, apiUsageId=${apiUsageId}, error=${this.summarizeError(statusError)}`,
+            );
+          }
         } else {
-          this.logger.error(
-            `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
-              `userId=${userId}, apiUsageId=${apiUsageId}`,
-          );
+          const refunded = await this.markFailedAndRefundWithRetry({
+            userId,
+            apiUsageId,
+            serviceType,
+            errorMessage,
+            processingTime,
+          });
+          if (refunded) {
+            this.logger.warn(
+              `[${serviceType}] Credits successfully refunded for failed operation: ` +
+                `userId=${userId}, apiUsageId=${apiUsageId}`,
+            );
+          } else {
+            this.logger.error(
+              `[${serviceType}] CRITICAL: Failed to mark failed/refund after retries. ` +
+                `userId=${userId}, apiUsageId=${apiUsageId}`,
+            );
+          }
         }
       } else {
         this.logger.error(
@@ -1543,14 +1585,14 @@ export class AiController {
       rawModel === 'gemini-3-flash-preview' ||
       rawModel === 'gemini-3-flash' ||
       rawModel === 'gemini-3-pro-preview'
-        ? 'gemini-3-pro-image-preview'
+        ? 'gemini-2.5-flash-image-preview'
         : rawModel;
     if (model?.length) {
       this.logger.debug(`[${providerName || 'default'}] Using requested model: ${model}`);
       return model;
     }
     if (providerName) {
-      return this.providerDefaultImageModels[providerName] || 'gemini-3-pro-image-preview';
+      return this.providerDefaultImageModels[providerName] || 'gemini-2.5-flash-image-preview';
     }
     return this.providerDefaultImageModels.gemini;
   }

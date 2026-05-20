@@ -95,7 +95,7 @@ export class BananaProvider implements IAIProvider {
   private readonly apimartTextUrl = "https://api.apimart.ai/v1/chat/completions";
   private readonly tencentTextUrl =
     "https://text-aigc.vod-qcloud.com/v1/chat/completions";
-  private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
+  private readonly DEFAULT_MODEL = "gemini-2.5-flash-image-preview";
   private readonly DEFAULT_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_TENCENT_TEXT_MODEL = "gemini-3-flash-preview";
@@ -308,7 +308,7 @@ export class BananaProvider implements IAIProvider {
 
   private normalizeModelName(model: string): string {
     // 绉婚櫎banana-鍓嶇紑锛岀‘淇滱PI鑳借瘑鍒ā鍨嬪悕绉?
-    // banana-gemini-3-pro-image-preview -> gemini-3-pro-image-preview
+    // banana-gemini-2.5-flash-image-preview -> gemini-2.5-flash-image-preview
     return model.startsWith("banana-") ? model.substring(7) : model;
   }
 
@@ -332,7 +332,7 @@ export class BananaProvider implements IAIProvider {
       normalized === "gemini-3-flash-preview" ||
       normalized === "gemini-3-flash"
     ) {
-      return "gemini-3-pro-image-preview";
+      return "gemini-2.5-flash-image-preview";
     }
     return normalized;
   }
@@ -357,7 +357,7 @@ export class BananaProvider implements IAIProvider {
       normalized === "gemini-3-flash-preview" ||
       normalized === "gemini-3-flash"
     ) {
-      return "gemini-3-pro-image-preview";
+      return "gemini-2.5-flash-image-preview";
     }
     return normalized;
   }
