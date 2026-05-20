@@ -254,6 +254,11 @@ const attachBananaRouteToProviderOptions = <T extends {
 const MAX_IMAGE_GENERATION_ATTEMPTS = 1;
 const NO_IMAGE_RETRY_DELAY_MS = 800;
 const TEXT_CHAT_TIMEOUT_MS = 60_000;
+const IMAGE_TASK_POLL_INTERVAL_MS = 2_000;
+const IMAGE_TASK_MAX_WAIT_MS = 20 * 60 * 1000;
+const IMAGE_TASK_PENDING_STATUSES = new Set(["queued", "processing", "pending", "in_progress"]);
+const IMAGE_TASK_SUCCESS_STATUSES = new Set(["succeeded", "success", "completed", "done"]);
+const IMAGE_TASK_FAILED_STATUSES = new Set(["failed", "error", "cancelled", "canceled", "timeout"]);
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -400,6 +405,250 @@ const mapBackendImageResult = ({
   };
 };
 
+type ImageTaskCreateResponse = {
+  taskId: string;
+  status?: string;
+};
+
+type ImageTaskStatusResponse = {
+  status: string;
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  textResponse?: string;
+  error?: string;
+};
+
+type ImageTaskRequestBase = {
+  aiProvider?: SupportedAIProvider;
+  providerOptions?: Record<string, any>;
+  imageSize?: string;
+};
+
+async function createImageTaskRequest<T extends ImageTaskRequestBase>(
+  endpoint: "generate-image-async" | "edit-image-async" | "blend-images-async",
+  request: T,
+  idempotencyKey: string
+): Promise<AIServiceResponse<ImageTaskCreateResponse>> {
+  const { request: requestWithRoute, bananaImageRoute } =
+    attachBananaRouteToProviderOptions(request);
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+        ...(bananaImageRoute ? { "X-Banana-Image-Route": bananaImageRoute } : {}),
+      },
+      body: JSON.stringify(requestWithRoute),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: normalizeImageGenerationErrorMessage(errorData?.message, response.status),
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    if (!data?.taskId || typeof data.taskId !== "string") {
+      return {
+        success: false,
+        error: {
+          code: "INVALID_TASK_RESPONSE",
+          message: `${endpoint} returned no taskId`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        taskId: data.taskId,
+        status: typeof data.status === "string" ? data.status : "queued",
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+const createGenerateImageTaskRequest = (
+  request: AIImageGenerateRequest,
+  idempotencyKey: string
+) => createImageTaskRequest("generate-image-async", request, idempotencyKey);
+
+const createEditImageTaskRequest = (
+  request: AIImageEditRequest,
+  idempotencyKey: string
+) => createImageTaskRequest("edit-image-async", request, idempotencyKey);
+
+const createBlendImagesTaskRequest = (
+  request: AIImageBlendRequest,
+  idempotencyKey: string
+) => createImageTaskRequest("blend-images-async", request, idempotencyKey);
+
+async function queryImageTaskViaAPI(
+  taskId: string
+): Promise<AIServiceResponse<ImageTaskStatusResponse>> {
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/image-task/${encodeURIComponent(taskId)}`
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: normalizeImageGenerationErrorMessage(errorData?.message, response.status),
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    return {
+      success: true,
+      data: (await response.json()) as ImageTaskStatusResponse,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+async function waitForAsyncImageTaskResult(params: {
+  taskId: string;
+  startedAt: number;
+  endpointLabel: "generate-image-async" | "edit-image-async" | "blend-images-async";
+  request: { aiProvider?: SupportedAIProvider; prompt: string; outputFormat?: string };
+  resolvedModel: string;
+}): Promise<AIServiceResponse<AIImageResult>> {
+  const { taskId, startedAt, endpointLabel, request, resolvedModel } = params;
+  const pollStartedAt = Date.now();
+
+  while (Date.now() - pollStartedAt < IMAGE_TASK_MAX_WAIT_MS) {
+    await sleep(IMAGE_TASK_POLL_INTERVAL_MS);
+    const pollResponse = await queryImageTaskViaAPI(taskId);
+
+    if (!pollResponse.success || !pollResponse.data) {
+      if (
+        isRetryableImageGenerationError(pollResponse.error) &&
+        Date.now() - pollStartedAt < IMAGE_TASK_MAX_WAIT_MS
+      ) {
+        continue;
+      }
+      logApiTiming(endpointLabel, startedAt, {
+        success: false,
+        provider: request.aiProvider,
+        model: resolvedModel,
+        taskId,
+        status: pollResponse.error?.code,
+      });
+      return {
+        success: false,
+        error: {
+          code: pollResponse.error?.code || "IMAGE_TASK_POLL_ERROR",
+          message: pollResponse.error?.message || "Image task polling failed",
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const taskStatus = String(pollResponse.data.status || "").toLowerCase();
+
+    if (IMAGE_TASK_SUCCESS_STATUSES.has(taskStatus)) {
+      const mapped = mapBackendImageResult({
+        data: {
+          imageUrl: pollResponse.data.imageUrl,
+          textResponse: pollResponse.data.textResponse,
+          metadata: {
+            asyncTask: true,
+            taskId,
+            taskStatus,
+            thumbnailUrl: pollResponse.data.thumbnailUrl,
+          },
+        },
+        prompt: request.prompt,
+        model: resolvedModel,
+        outputFormat: request.outputFormat || "png",
+      });
+
+      if (!mapped.hasImage || (!mapped.imageData && !mapped.imageUrl)) {
+        return {
+          success: false,
+          error: {
+            code: "NO_IMAGE_PAYLOAD",
+            message: "image task succeeded but returned no image payload",
+            timestamp: new Date(),
+          },
+        };
+      }
+
+      logApiTiming(endpointLabel, startedAt, {
+        success: true,
+        provider: request.aiProvider,
+        model: resolvedModel,
+        taskId,
+      });
+      return { success: true, data: mapped };
+    }
+
+    if (IMAGE_TASK_FAILED_STATUSES.has(taskStatus)) {
+      return {
+        success: false,
+        error: {
+          code: "IMAGE_TASK_FAILED",
+          message:
+            typeof pollResponse.data.error === "string" && pollResponse.data.error.trim()
+              ? pollResponse.data.error.trim()
+              : "image task failed",
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    if (!IMAGE_TASK_PENDING_STATUSES.has(taskStatus)) {
+      return {
+        success: false,
+        error: {
+          code: "IMAGE_TASK_UNKNOWN_STATUS",
+          message: `image task returned unexpected status: ${pollResponse.data.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+  }
+
+  return {
+    success: false,
+    error: {
+      code: "TIMEOUT_ERROR",
+      message: normalizeImageGenerationErrorMessage("timeout", 524),
+      timestamp: new Date(),
+    },
+  };
+}
+
 async function performGenerateImageRequest(
   request: AIImageGenerateRequest,
   idempotencyKey: string
@@ -523,6 +772,39 @@ export async function generateImageViaAPI(
 ): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
   const idempotencyKey = buildIdempotencyKey("generate-image");
+  const resolvedModel = resolveDefaultModel(request.model, request.aiProvider);
+
+  const createTaskResponse = await createGenerateImageTaskRequest(
+    request,
+    `${idempotencyKey}-async`
+  );
+  if (createTaskResponse.success && createTaskResponse.data) {
+    return waitForAsyncImageTaskResult({
+      taskId: createTaskResponse.data.taskId,
+      startedAt,
+      endpointLabel: "generate-image-async",
+      request: {
+        aiProvider: request.aiProvider,
+        prompt: request.prompt,
+        outputFormat: request.outputFormat,
+      },
+      resolvedModel,
+    });
+  }
+
+  const createStatus = parseHttpStatusFromErrorCode(createTaskResponse.error?.code);
+  const asyncApiUnsupported = createStatus === 404 || createStatus === 405;
+  if (!asyncApiUnsupported) {
+    return {
+      success: false,
+      error: {
+        code: createTaskResponse.error?.code || "IMAGE_TASK_CREATE_ERROR",
+        message: createTaskResponse.error?.message || "Create image task failed",
+        timestamp: new Date(),
+      },
+    };
+  }
+
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
 
@@ -730,6 +1012,39 @@ export async function editImageViaAPI(
 ): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
   const idempotencyKey = buildIdempotencyKey("edit-image");
+  const resolvedModel = resolveDefaultModel(request.model, request.aiProvider);
+
+  const createTaskResponse = await createEditImageTaskRequest(
+    request,
+    `${idempotencyKey}-async`
+  );
+  if (createTaskResponse.success && createTaskResponse.data) {
+    return waitForAsyncImageTaskResult({
+      taskId: createTaskResponse.data.taskId,
+      startedAt,
+      endpointLabel: "edit-image-async",
+      request: {
+        aiProvider: request.aiProvider,
+        prompt: request.prompt,
+        outputFormat: request.outputFormat,
+      },
+      resolvedModel,
+    });
+  }
+
+  const createStatus = parseHttpStatusFromErrorCode(createTaskResponse.error?.code);
+  const asyncApiUnsupported = createStatus === 404 || createStatus === 405;
+  if (!asyncApiUnsupported) {
+    return {
+      success: false,
+      error: {
+        code: createTaskResponse.error?.code || "IMAGE_TASK_CREATE_ERROR",
+        message: createTaskResponse.error?.message || "Create image task failed",
+        timestamp: new Date(),
+      },
+    };
+  }
+
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
 
@@ -919,6 +1234,39 @@ export async function blendImagesViaAPI(
 ): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
   const idempotencyKey = buildIdempotencyKey("blend-images");
+  const resolvedModel = resolveDefaultModel(request.model, request.aiProvider);
+
+  const createTaskResponse = await createBlendImagesTaskRequest(
+    request,
+    `${idempotencyKey}-async`
+  );
+  if (createTaskResponse.success && createTaskResponse.data) {
+    return waitForAsyncImageTaskResult({
+      taskId: createTaskResponse.data.taskId,
+      startedAt,
+      endpointLabel: "blend-images-async",
+      request: {
+        aiProvider: request.aiProvider,
+        prompt: request.prompt,
+        outputFormat: request.outputFormat,
+      },
+      resolvedModel,
+    });
+  }
+
+  const createStatus = parseHttpStatusFromErrorCode(createTaskResponse.error?.code);
+  const asyncApiUnsupported = createStatus === 404 || createStatus === 405;
+  if (!asyncApiUnsupported) {
+    return {
+      success: false,
+      error: {
+        code: createTaskResponse.error?.code || "IMAGE_TASK_CREATE_ERROR",
+        message: createTaskResponse.error?.message || "Create image task failed",
+        timestamp: new Date(),
+      },
+    };
+  }
+
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
 
