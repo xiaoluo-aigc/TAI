@@ -647,6 +647,12 @@ export class CreditsService {
       effectiveRequestParams,
     );
 
+    creditsToDeduct = this.resolveSeedanceCredits(
+      params.serviceType,
+      creditsToDeduct,
+      effectiveRequestParams,
+    );
+
     creditsToDeduct = this.resolveFixedAnalyzeCredits(params.serviceType, creditsToDeduct);
 
     if (params.serviceType === GPT_IMAGE2_SERVICE_TYPE) {
@@ -1229,6 +1235,36 @@ export class CreditsService {
       return Math.round(rate * duration);
     }
     return defaultCredits;
+  }
+
+  /**
+   * Seedance 视频服务积分兜底：
+   * managedRoutePricing 可能从 systemSetting 的 MODEL_PROVIDER_MAPPING 中读到错误的 vendor 定价（如 86 积分）。
+   * 对于 doubao-video（Seedance 1.5 / 2.0），当 managed pricing 给出的积分过低（< 100）时，
+   * 强制回退到 CREDIT_PRICING_CONFIG 中的静态定价（默认 600 积分），防止用户被少扣。
+   */
+  private resolveSeedanceCredits(
+    serviceType: ServiceType,
+    currentCredits: number,
+    requestParams: any,
+  ): number {
+    if (serviceType !== 'doubao-video') {
+      return currentCredits;
+    }
+    const MIN_SEEDANCE_CREDITS = 100;
+    if (currentCredits >= MIN_SEEDANCE_CREDITS) {
+      return currentCredits;
+    }
+    const staticPricing = (CREDIT_PRICING_CONFIG as Record<string, any>)[serviceType];
+    const fallbackCredits = Number(staticPricing?.creditsPerCall);
+    if (Number.isFinite(fallbackCredits) && fallbackCredits >= MIN_SEEDANCE_CREDITS) {
+      this.logger.warn(
+        `[Credits] Seedance managed pricing credits=${currentCredits} too low, ` +
+          `fallback to static pricing credits=${fallbackCredits} for serviceType=${serviceType}`,
+      );
+      return fallbackCredits;
+    }
+    return currentCredits;
   }
 
   /**
