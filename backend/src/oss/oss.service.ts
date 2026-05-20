@@ -88,8 +88,8 @@ export class OssService {
         accessKeyId,
         secretAccessKey: accessKeySecret,
       },
-      // 火山 TOS 兼容虚拟主机样式，通常设为 false 即可
-      forcePathStyle: false,
+      // 火山 TOS 兼容 S3 接口，需要设为 true 使用路径样式
+      forcePathStyle: true,
       requestHandler: {
         requestTimeout: this.timeoutMs(),
       } as any,
