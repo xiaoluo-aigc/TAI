@@ -106,7 +106,7 @@ export class AiPublicController {
           info: {
             name: 'Google Gemini',
             version: '2.5',
-            supportedModels: ['gemini-3-pro-image-preview', 'gemini-3-flash-preview'],
+            supportedModels: ['gemini-2.5-flash-image-preview', 'gemini-3-flash-preview'],
           },
         },
       ],

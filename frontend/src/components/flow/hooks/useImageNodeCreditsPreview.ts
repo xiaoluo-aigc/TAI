@@ -208,7 +208,7 @@ export const useImageNodeCreditsPreview = ({
             serviceType === "gemini-3.1-image-blend" ||
             serviceType === "gemini-3.1-image-analyze"
           ? "gemini-3.1-flash-image-preview"
-          : "gemini-3-pro-image-preview",
+          : "gemini-2.5-flash-image-preview",
       requestParams: {
         aiProvider: provider,
         imageSize: normalizedImageSize,

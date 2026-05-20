@@ -462,7 +462,11 @@ export class ImageTaskService {
             },
           });
 
-          // 任务失败，标记积分状态为失败并触发退款
+          // GPT-image-2 节点失败时不返还积分
+          const resolvedServiceType = resolveTaskServiceType(taskType, taskRequestData?.model || undefined);
+          const skipRefund = resolvedServiceType === 'gpt-image-2';
+
+          // 任务失败，标记积分状态为失败
           if (effectiveApiUsageId) {
             try {
               await this.creditsService.updateApiUsageStatus(
@@ -471,11 +475,18 @@ export class ImageTaskService {
                 errorMessage,
                 Date.now() - startedAt
               );
-              // 执行退款
-              await this.creditsService.refundCredits(task.userId, effectiveApiUsageId);
-              this.logger.log(
-                `异步任务失败已退款: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}`
-              );
+
+              if (skipRefund) {
+                this.logger.warn(
+                  `异步任务失败（不退积分）: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}, serviceType=${resolvedServiceType}`
+                );
+              } else {
+                // 执行退款
+                await this.creditsService.refundCredits(task.userId, effectiveApiUsageId);
+                this.logger.log(
+                  `异步任务失败已退款: taskId=${taskId}, apiUsageId=${effectiveApiUsageId}`
+                );
+              }
             } catch (creditsError) {
               const creditsErrorMsg =
                 creditsError instanceof Error ? creditsError.message : String(creditsError);

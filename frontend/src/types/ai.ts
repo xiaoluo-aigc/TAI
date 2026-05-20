@@ -1,6 +1,6 @@
 ﻿/**
- * Google Gemini 3 Pro Image API 鐩稿叧绫诲瀷瀹氫箟
- * 鏀寔 gemini-3-pro-image-preview 妯″瀷
+ * Google Gemini 3 Pro Image API 相关类型定义
+ * 支持 gemini-2.5-flash-image-preview 模型
  */
 
 // AI鍥惧儚鐢熸垚璇锋眰鍙傛暟
