@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
@@ -233,7 +233,7 @@ export class OssService {
     }
   }
 
-  signUrl(key: string, expiresInSeconds = 300): string {
+  async signUrl(key: string, expiresInSeconds = 300): Promise<string> {
     const normalizedKey = typeof key === 'string' ? key.trim().replace(/^\/+/, '') : '';
     if (!normalizedKey) return '';
     if (!this.isOssEnabled()) {
@@ -245,24 +245,34 @@ export class OssService {
         Bucket: this.conf.bucket,
         Key: normalizedKey,
       });
-      
-      // 注意此处签名由于是异步操作，严格来说 signUrl 应该改为 async，
-      // 但为了兼容你外部可能存在的同步调用，如果外部报错，建议将外部调用处加上 await。
-      // 作为权宜之计，如果不涉及私有桶强制验签，遇到同步签名需求会降级返回公开链接。
-      // 在此处我们直接返回一个 Promise 包装，如果你的 controller 没用 await 会拿到 Promise 字符串。
-      // 强烈建议在有空时把外层的 signUrl 调用也加上 await。
-      
-      // 为保持原有同步方法签名不报错，这里做个强制类型转换输出，实际应用中 S3 签名必须是异步的。
-      // 如果你的桶是公开读的，其实直接用 publicUrl 即可。
-      let signedUrl = '';
-      getSignedUrl(client, command, { 
-        expiresIn: Math.max(30, Math.min(3600, Math.floor(expiresInSeconds))) 
-      }).then(url => { signedUrl = url; }).catch(() => {});
-      
-      // 降级返回 publicUrl （因为真实的签名在 S3 v3 中是纯异步的）
-      return this.publicUrl(normalizedKey);
+      const signedUrl = await getSignedUrl(client, command, {
+        expiresIn: Math.max(30, Math.min(3600, Math.floor(expiresInSeconds))),
+      });
+      return signedUrl || this.publicUrl(normalizedKey);
     } catch {
       return this.publicUrl(normalizedKey);
+    }
+  }
+
+  async objectExists(key: string): Promise<boolean> {
+    const normalizedKey = typeof key === 'string' ? key.trim().replace(/^\/+/, '') : '';
+    if (!normalizedKey) return false;
+    if (!this.isOssEnabled()) return true;
+    try {
+      const client = this.client();
+      const command = new HeadObjectCommand({
+        Bucket: this.conf.bucket,
+        Key: normalizedKey,
+      });
+      await client.send(command);
+      return true;
+    } catch (err: any) {
+      const statusCode = err?.$metadata?.httpStatusCode;
+      const code = String(err?.name || err?.Code || '');
+      if (statusCode === 404 || statusCode === 403 || code === 'NotFound' || code === 'NoSuchKey') {
+        return false;
+      }
+      throw err;
     }
   }
 

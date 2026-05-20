@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,6 +7,8 @@ import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
 
 @Injectable()
 export class ProjectsService {
+  private readonly logger = new Logger(ProjectsService.name);
+  private readonly managedAssetKeyRegex = /^(projects|uploads|templates|videos|ai)\//i;
   private readonly workflowHistoryRetentionDays = 7;
   private thumbnailColumnChecked = false;
   private thumbnailColumnAvailable = false;
@@ -236,6 +238,12 @@ export class ProjectsService {
         thumbnailUrl: this.extractThumbnail(project) || undefined,
       };
     }
+
+    const previousContent = await this.resolveProjectContentForAssetValidation(
+      project,
+      supportsThumbnailColumn
+    );
+    await this.assertNewManagedAssetKeysExist(previousContent, sanitizedContent, id);
 
     try {
       await this.oss.putJSON(mainKey, sanitizedContent);
@@ -518,6 +526,137 @@ export class ProjectsService {
       const oldestKey = this.projectContentFingerprint.keys().next().value as string | undefined;
       if (!oldestKey) break;
       this.projectContentFingerprint.delete(oldestKey);
+    }
+  }
+
+  private normalizeManagedAssetKey(raw?: string | null): string | null {
+    const value = typeof raw === 'string' ? raw.trim().replace(/^\/+/, '') : '';
+    if (!value) return null;
+    if (this.managedAssetKeyRegex.test(value)) return value;
+    try {
+      const decoded = decodeURIComponent(value);
+      if (decoded !== value && this.managedAssetKeyRegex.test(decoded)) return decoded;
+    } catch {
+      // ignore decode errors
+    }
+    return null;
+  }
+
+  private extractManagedAssetKey(input?: string | null, visited: Set<string> = new Set()): string | null {
+    const trimmed = typeof input === 'string' ? input.trim() : '';
+    if (!trimmed) return null;
+    if (visited.has(trimmed)) return null;
+    visited.add(trimmed);
+
+    const direct = this.normalizeManagedAssetKey(trimmed);
+    if (direct) return direct;
+
+    const parseCandidate = (() => {
+      if (/^https?:\/\//i.test(trimmed)) return trimmed;
+      if (trimmed.startsWith('/')) return `https://local.invalid${trimmed}`;
+      return null;
+    })();
+    if (!parseCandidate) return null;
+
+    try {
+      const parsed = new URL(parseCandidate);
+      const fromPath = this.normalizeManagedAssetKey(parsed.pathname);
+      if (fromPath) return fromPath;
+
+      const fromKeyQuery = this.normalizeManagedAssetKey(parsed.searchParams.get('key'));
+      if (fromKeyQuery) return fromKeyQuery;
+
+      const nestedUrl = parsed.searchParams.get('url');
+      if (nestedUrl && nestedUrl !== trimmed) {
+        const nested = this.extractManagedAssetKey(nestedUrl, visited);
+        if (nested) return nested;
+      }
+    } catch {
+      // ignore parse errors
+    }
+
+    return null;
+  }
+
+  private collectManagedAssetKeys(input: unknown, out: Set<string>) {
+    if (typeof input === 'string') {
+      const key = this.extractManagedAssetKey(input);
+      if (key) out.add(key);
+      return;
+    }
+    if (Array.isArray(input)) {
+      input.forEach((item) => this.collectManagedAssetKeys(item, out));
+      return;
+    }
+    if (!input || typeof input !== 'object') return;
+    Object.values(input as Record<string, unknown>).forEach((value) => {
+      this.collectManagedAssetKeys(value, out);
+    });
+  }
+
+  private async resolveProjectContentForAssetValidation(
+    project: { mainKey: string; contentJson?: unknown },
+    supportsThumbnailColumn: boolean
+  ): Promise<unknown> {
+    if (project.mainKey) {
+      try {
+        const fromOss = await this.oss.getJSON(project.mainKey);
+        if (fromOss !== null && fromOss !== undefined) {
+          return sanitizeDesignJson(fromOss);
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Failed to read existing project content from OSS before validation: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+    if (!supportsThumbnailColumn) {
+      return sanitizeDesignJson((project as any).contentJson || null);
+    }
+    return null;
+  }
+
+  private async assertNewManagedAssetKeysExist(
+    previousContent: unknown,
+    nextContent: unknown,
+    projectId: string
+  ): Promise<void> {
+    if (!this.oss.isEnabled()) return;
+
+    const previousKeys = new Set<string>();
+    const nextKeys = new Set<string>();
+    this.collectManagedAssetKeys(previousContent, previousKeys);
+    this.collectManagedAssetKeys(nextContent, nextKeys);
+
+    const keysToVerify = Array.from(nextKeys).filter((key) => !previousKeys.has(key));
+    if (keysToVerify.length === 0) return;
+
+    const missing: string[] = [];
+    let cursor = 0;
+    const workerCount = Math.min(5, keysToVerify.length);
+    await Promise.all(
+      Array.from({ length: workerCount }).map(async () => {
+        while (true) {
+          const current = cursor;
+          cursor += 1;
+          const key = keysToVerify[current];
+          if (!key) break;
+          const exists = await this.oss.objectExists(key);
+          if (!exists) missing.push(key);
+        }
+      })
+    );
+
+    if (missing.length > 0) {
+      const preview = missing.slice(0, 3).join(', ');
+      this.logger.warn(
+        `Blocked project save due to missing OSS objects. projectId=${projectId} missing=${missing.length} sample=${preview}`
+      );
+      throw new BadRequestException(
+        `Found ${missing.length} missing uploaded assets. Please retry upload before saving.`
+      );
     }
   }
 

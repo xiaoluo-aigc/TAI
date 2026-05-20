@@ -75,6 +75,21 @@
 - Prevent accidental page leave while generation/upload is in progress.
 - Make loss risk explicit before user confirms force-leave.
 
+## Asset persistence guard hardening (2026-05-20)
+
+### Backend changes
+- `OssService.signUrl` is now truly async and returns real signed read URLs (instead of effectively falling back to public URLs), improving private-bucket compatibility in asset proxy reads.
+- Added `OssService.objectExists(key)` based on `HeadObject` for server-side object existence verification.
+- `GET /api/assets/proxy` now resolves managed keys through async signed URLs and logs non-OK upstream responses with key/target/status for production triage.
+- `ProjectsService.updateContent` now performs save-time validation for newly introduced managed asset keys in `Project.contentJson`:
+  - compares previous persisted content vs current content
+  - verifies only newly added managed keys
+  - blocks save with `400` when referenced new assets are missing in OSS
+
+### Effect
+- Prevents "DB references a key but OSS object is missing" from being persisted again.
+- Reduces post-save 404 incidents such as `/api/assets/proxy?key=projects/...`.
+
 
 
 

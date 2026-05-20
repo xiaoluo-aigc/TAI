@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, Controller, Get, Query, Req, Res } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Controller, Get, Logger, Query, Req, Res } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Readable } from 'node:stream';
@@ -17,6 +17,8 @@ const sleep = (ms: number) =>
 @ApiTags('assets')
 @Controller('assets')
 export class AssetsController {
+  private readonly logger = new Logger(AssetsController.name);
+
   constructor(private readonly oss: OssService) {}
 
   private normalizeManagedAssetKey(raw?: string | null): string | null {
@@ -25,10 +27,10 @@ export class AssetsController {
     return MANAGED_ASSET_KEY_REGEX.test(value) ? value : null;
   }
 
-  private resolveBucketOriginUrl(key: string): string | null {
+  private async resolveBucketOriginUrl(key: string): Promise<string | null> {
     const normalizedKey = this.normalizeManagedAssetKey(key);
     if (!normalizedKey) return null;
-    const signed = this.oss.signUrl(normalizedKey, 300);
+    const signed = await this.oss.signUrl(normalizedKey, 300);
     if (signed) return signed;
     return this.oss.publicUrl(normalizedKey);
   }
@@ -65,18 +67,18 @@ export class AssetsController {
     return null;
   }
 
-  private normalizeTargetUrlForFetch(rawUrl: string): string {
+  private async normalizeTargetUrlForFetch(rawUrl: string): Promise<string> {
     const managedKey = this.extractManagedAssetKey(rawUrl);
     if (!managedKey) return rawUrl;
-    return this.resolveBucketOriginUrl(managedKey) || this.oss.signUrl(managedKey, 300) || this.oss.publicUrl(managedKey);
+    return (await this.resolveBucketOriginUrl(managedKey)) || this.oss.publicUrl(managedKey);
   }
 
-  private resolveTargetUrl(params: { url?: string; key?: string }): string {
+  private async resolveTargetUrl(params: { url?: string; key?: string }): Promise<string> {
     const key = typeof params.key === 'string' ? params.key.trim().replace(/^\/+/, '') : '';
     if (key) {
       const normalizedKey = this.normalizeManagedAssetKey(key);
       if (normalizedKey) {
-        return this.resolveBucketOriginUrl(normalizedKey) || this.oss.publicUrl(normalizedKey);
+        return (await this.resolveBucketOriginUrl(normalizedKey)) || this.oss.publicUrl(normalizedKey);
       }
       return this.oss.publicUrl(key.replace(/^\/+/, ''));
     }
@@ -154,7 +156,8 @@ export class AssetsController {
       // ignore
     }
 
-    const initialUrl = this.resolveTargetUrl({ url, key });
+    const managedKeyForLog = this.normalizeManagedAssetKey(key) || this.extractManagedAssetKey(url);
+    const initialUrl = await this.resolveTargetUrl({ url, key });
 
     let parsed: URL;
     try {
@@ -318,6 +321,9 @@ export class AssetsController {
       reply.header('cache-control', 'public, max-age=3600');
     }
     if (!upstream.ok) {
+      this.logger.warn(
+        `[assets/proxy] upstream non-ok status=${upstream.status} key=${managedKeyForLog || '-'} target=${parsed.toString()}`
+      );
       reply.header('cache-control', 'no-store');
     }
 
