@@ -128,14 +128,23 @@ export class TemplateService {
       }
       templateData = json;
     }
-    if (!templateData || (typeof templateData === 'object' && Object.keys(templateData).length === 0)) {
-      throw new Error('模板数据不能为空');
+    // 只有当既没有 templateData 也没有 templateJsonKey 时才设为空对象
+    if (
+      (templateData === undefined || templateData === null) &&
+      !dto.templateJsonKey
+    ) {
+      templateData = {};
     }
-    templateData = sanitizeDesignJson(templateData);
+    if (templateData) {
+      templateData = sanitizeDesignJson(templateData);
+    }
+
+    // 名称默认为 "未命名模板"
+    const name = dto.name?.trim() || '未命名模板';
 
     return this.prisma.publicTemplate.create({
       data: {
-        name: dto.name,
+        name,
         category: dto.category,
         description: dto.description,
         tags: dto.tags || [],
