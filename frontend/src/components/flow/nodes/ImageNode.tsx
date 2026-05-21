@@ -19,6 +19,7 @@ import {
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import {
   isPersistableImageRef,
+  normalizePersistableImageRef,
   pickPersistedImageRefFromUploadAsset,
   resolveImageToBlob,
   toRenderableImageSrc,
@@ -143,6 +144,14 @@ const buildImageSrc = (value?: string): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return toRenderableImageSrc(trimmed) || undefined;
+};
+
+const buildPublicImageUrlForVolc = (value?: string): string | undefined => {
+  if (!isPersistableImageRef(value)) return undefined;
+  const normalized = normalizePersistableImageRef(value);
+  if (/^https?:\/\//i.test(normalized)) return normalized;
+  const renderable = toRenderableImageSrc(normalized);
+  return renderable && /^https?:\/\//i.test(renderable) ? renderable : undefined;
 };
 
 const MIN_WIDTH = 320;
@@ -1011,6 +1020,19 @@ function ImageNodeInner({ id, data, selected }: Props) {
   }, [resolvedImageName]);
   const shouldShowImageName = Boolean(data.imageData && truncatedImageName);
   const canSend = Boolean(canvasCrop?.src || displaySrc || fullSrc);
+  const volcSourceUrl = React.useMemo(() => {
+    const candidates = [
+      data.imageUrl,
+      cropInfo?.baseRef,
+      connectedFrameImage,
+      data.imageData,
+    ];
+    for (const candidate of candidates) {
+      const url = buildPublicImageUrlForVolc(candidate);
+      if (url) return url;
+    }
+    return undefined;
+  }, [connectedFrameImage, cropInfo?.baseRef, data.imageData, data.imageUrl]);
 
   // ── Volc Asset Library audit state ──────────────────────────────────────────
   const volcAssetId: string | undefined = (data as any)?.volcAssetId;
@@ -1062,14 +1084,11 @@ function ImageNodeInner({ id, data, selected }: Props) {
   }, []);
 
   const handleReviewClick = React.useCallback(async () => {
-    // Use data.imageUrl — the persistable OSS URL (primary source field for this node)
-    const sourceUrl: string | undefined = typeof data.imageUrl === "string" && data.imageUrl.trim()
-      ? data.imageUrl.trim()
-      : undefined;
+    const sourceUrl = volcSourceUrl;
     if (!sourceUrl) {
       window.dispatchEvent(
         new CustomEvent("toast", {
-          detail: { message: "请先上传图片再送审", type: "warning" },
+          detail: { message: "请先上传可访问的图片再送审", type: "warning" },
         })
       );
       return;
@@ -1091,7 +1110,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         volcAssetError: err?.message || "上传失败",
       });
     }
-  }, [data.imageUrl, effectiveVolcStatus, patchNode]);
+  }, [effectiveVolcStatus, patchNode, volcSourceUrl]);
 
   // ── Bio Auth state ────────────────────────────────────────────────────────
   const bioAuthId: string | undefined = (data as any)?.bioAuthId;
@@ -1696,7 +1715,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
           {(() => {
             const reviewTitle =
               isReviewExpired ? "审核已过期，点击重新审核"
-              : effectiveVolcStatus === "active" ? "已通过审核，sd2 将使用 asset://（点击可重新审核）"
+              : effectiveVolcStatus === "active" ? "已通过审核"
               : effectiveVolcStatus === "processing" ? "审核中…"
               : effectiveVolcStatus === "failed" ? (volcAssetError || "审核失败，点击重试")
               : "审核通过可用于sd2";
@@ -1736,9 +1755,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
               <button
                 type="button"
                 onClick={() => {
-                  if (!data.imageUrl) {
+                  if (!volcSourceUrl) {
                     window.dispatchEvent(new CustomEvent("toast", {
-                      detail: { message: "请先上传图片再认证", type: "warning" },
+                      detail: { message: "请先上传可访问的图片再认证", type: "warning" },
                     }));
                     return;
                   }
@@ -1957,7 +1976,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
       {/* Bio Auth Modal */}
       <BioAuthModal
         isOpen={bioAuthModalOpen}
-        imageUrl={data.imageUrl || ""}
+        imageUrl={volcSourceUrl || ""}
         onClose={() => setBioAuthModalOpen(false)}
         onStart={(taskId) => {
           patchNode({

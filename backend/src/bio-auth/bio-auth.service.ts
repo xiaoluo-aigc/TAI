@@ -55,10 +55,15 @@ type BioAuthGroupDelegate = {
   }): Promise<BioAuthGroupRow | null>;
 };
 
+const VOLC_API_TIMEOUT_MS = 25_000;
+
 @Injectable()
 export class BioAuthService implements OnModuleInit {
   private readonly logger = new Logger(BioAuthService.name);
   private readonly tasks = new Map<string, TaskRecord>();
+  private readonly memoryGroups = new Map<string, BioAuthGroupRow>();
+  private groupPersistenceUnavailable = false;
+  private groupPersistenceWarningLogged = false;
   private env!: VolcEnv;
 
   constructor(
@@ -68,6 +73,86 @@ export class BioAuthService implements OnModuleInit {
 
   private getBioAuthGroupDelegate(): BioAuthGroupDelegate {
     return (this.prisma as unknown as { bioAuthGroup: BioAuthGroupDelegate }).bioAuthGroup;
+  }
+
+  private isGroupPersistenceMissingError(err: any): boolean {
+    const code = typeof err?.code === 'string' ? err.code : '';
+    const message = String(err?.message || '').toLowerCase();
+    return (
+      code === 'P2021' ||
+      code === 'P2022' ||
+      message.includes('bioauthgroup') ||
+      message.includes('bio_auth_group') ||
+      (message.includes('table') && message.includes('does not exist'))
+    );
+  }
+
+  private markGroupPersistenceUnavailable(err: any) {
+    this.groupPersistenceUnavailable = true;
+    if (this.groupPersistenceWarningLogged) return;
+    this.groupPersistenceWarningLogged = true;
+    this.logger.warn(
+      `bioAuthGroup 表不可用，认证组历史复用降级为内存模式（重启后缓存会丢失）：${err?.message || err}`,
+    );
+  }
+
+  private async upsertBioAuthGroup(group: {
+    userId: string;
+    groupId: string;
+    imageUrl: string;
+  }): Promise<void> {
+    if (!this.memoryGroups.has(group.groupId)) {
+      this.memoryGroups.set(group.groupId, {
+        userId: group.userId,
+        groupId: group.groupId,
+        imageUrl: group.imageUrl,
+        createdAt: new Date(),
+      });
+    }
+    if (this.groupPersistenceUnavailable) return;
+    try {
+      await this.getBioAuthGroupDelegate().upsert({
+        where: { groupId: group.groupId },
+        create: group,
+        update: {},
+      });
+    } catch (err: any) {
+      if (!this.isGroupPersistenceMissingError(err)) throw err;
+      this.markGroupPersistenceUnavailable(err);
+    }
+  }
+
+  private async findBioAuthGroups(userId: string, since: Date): Promise<BioAuthGroupRow[]> {
+    const fromMemory = () =>
+      Array.from(this.memoryGroups.values())
+        .filter((row) => row.userId === userId && row.createdAt >= since)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    if (this.groupPersistenceUnavailable) return fromMemory();
+    try {
+      return await this.getBioAuthGroupDelegate().findMany({
+        where: { userId, createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+        select: { groupId: true, imageUrl: true, createdAt: true },
+      });
+    } catch (err: any) {
+      if (!this.isGroupPersistenceMissingError(err)) throw err;
+      this.markGroupPersistenceUnavailable(err);
+      return fromMemory();
+    }
+  }
+
+  private async findBioAuthGroup(groupId: string): Promise<BioAuthGroupRow | null> {
+    if (this.groupPersistenceUnavailable) {
+      return this.memoryGroups.get(groupId) || null;
+    }
+    try {
+      return await this.getBioAuthGroupDelegate().findUnique({ where: { groupId } });
+    } catch (err: any) {
+      if (!this.isGroupPersistenceMissingError(err)) throw err;
+      this.markGroupPersistenceUnavailable(err);
+      return this.memoryGroups.get(groupId) || null;
+    }
   }
 
   onModuleInit() {
@@ -107,11 +192,24 @@ export class BioAuthService implements OnModuleInit {
       body: jsonBody,
     });
     const { Host: _host, ...fetchHeaders } = signed.headers;
-    const resp = await fetch(signed.url, {
-      method: 'POST',
-      headers: fetchHeaders,
-      body: jsonBody,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), VOLC_API_TIMEOUT_MS);
+    let resp: Response;
+    try {
+      resp = await fetch(signed.url, {
+        method: 'POST',
+        headers: fetchHeaders,
+        body: jsonBody,
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw new Error(`Volc ${action} timeout after ${VOLC_API_TIMEOUT_MS}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const text = await resp.text();
     if (!resp.ok) {
       let detail = text.slice(0, 200);
@@ -184,11 +282,7 @@ export class BioAuthService implements OnModuleInit {
       const groupId = validateResult?.GroupId;
       if (!groupId) throw new Error('GetVisualValidateResult: missing GroupId');
 
-      await this.getBioAuthGroupDelegate().upsert({
-        where: { groupId },
-        create: { userId: task.userId, groupId, imageUrl: task.imageUrl },
-        update: {},
-      });
+      await this.upsertBioAuthGroup({ userId: task.userId, groupId, imageUrl: task.imageUrl });
       task.groupId = groupId;
 
       const assetResp = await this.call<{ Id?: string }>('CreateAsset', {
@@ -259,11 +353,7 @@ export class BioAuthService implements OnModuleInit {
 
   async listGroups(userId: string): Promise<ListGroupsResponse> {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const rows = await this.getBioAuthGroupDelegate().findMany({
-      where: { userId, createdAt: { gte: since } },
-      orderBy: { createdAt: 'desc' },
-      select: { groupId: true, imageUrl: true, createdAt: true },
-    });
+    const rows = await this.findBioAuthGroups(userId, since);
     return {
       groups: rows.map((r) => ({
         groupId: r.groupId,
@@ -278,7 +368,7 @@ export class BioAuthService implements OnModuleInit {
     groupId: string,
     imageUrl: string,
   ): Promise<CreateAssetInGroupResponse> {
-    const group = await this.getBioAuthGroupDelegate().findUnique({ where: { groupId } });
+    const group = await this.findBioAuthGroup(groupId);
     if (!group || group.userId !== userId) {
       throw new ForbiddenException('GroupId 不属于当前用户');
     }

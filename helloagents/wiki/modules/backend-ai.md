@@ -27,6 +27,10 @@
 - `POST minimax-speech` / `POST minimax-music`
 
 ## 注意事项
+- OSS/TOS direct image uploads verify readability through `/api/assets/proxy` with credential-less Range requests and short retries; `206 Partial Content` is expected and treated as readable.
+- Volc review group reuse normally persists to `volcReviewGroup`, and bio-auth history reuse normally persists to `bioAuthGroup`; if those Prisma tables/columns are missing, both services now fall back to process-local memory and log one warning.
+- Volc API proxy calls used by asset review and bio-auth have explicit timeouts; frontend requests fail after 30s and backend upstream calls fail after 25s so node state can recover from invalid/inaccessible image URLs.
+- Volc asset review lives under `/api/volc-asset/*`; bio-auth lives under `/api/bio-auth/*`. Bio-auth callback accepts both GET and POST plus common `BytedToken` / `ResultCode` casing variants before updating the in-memory task and polling asset status.
 - `generate-image` 在上游仅返回外链 `imageUrl`（如 Seedream/Nano2）时，会统一下载并转�?OSS 后返回稳�?URL；管理员/白名单只跳过水印，不再直返第三方临时链接�?
 - 图像同步接口（`generate-image` / `edit-image` / `blend-images`）现要求“成功响应必须包含可用图像载荷（`imageData` �?`imageUrl`）”；若上游出�?`HTTP 200` 但空图返回，接口会按失败处理并进入积分失�?退款路径，避免假成功扣分�?
 - Seedream5 supports system setting key seedream5_provider (doubao / watcha), defaulting to doubao when missing.

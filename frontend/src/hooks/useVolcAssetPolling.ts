@@ -22,6 +22,8 @@ export function useVolcAssetPolling({ assetId, status, onUpdate }: VolcAssetPoll
     if (!assetId || status !== "processing") return;
     let cancelled = false;
     const startedAt = Date.now();
+    const timeoutReached = () => Date.now() - startedAt > POLL_TIMEOUT_MS;
+
     const tick = async () => {
       if (cancelled) return;
       try {
@@ -38,7 +40,12 @@ export function useVolcAssetPolling({ assetId, status, onUpdate }: VolcAssetPoll
         }
       } catch (err: any) {
         if (cancelled) return;
-        onUpdateRef.current({ status: "failed", errorMessage: err?.message || "轮询失败" });
+        if (timeoutReached()) {
+          onUpdateRef.current({ status: "failed", errorMessage: err?.message || "审核超时，请重试" });
+          return;
+        }
+        // 轮询阶段遇到临时网络/502 错误时继续重试，避免偶发抖动立刻失败。
+        setTimeout(tick, POLL_INTERVAL_MS);
       }
     };
     const t = setTimeout(tick, POLL_INTERVAL_MS);

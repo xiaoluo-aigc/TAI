@@ -28,12 +28,23 @@ interface GetAssetResp {
   ResponseMetadata?: { Error?: { Message?: string; Code?: string } };
 }
 
+const VOLC_API_TIMEOUT_MS = 25_000;
+
+type VolcReviewGroupMemoryRecord = {
+  date: string;
+  groupId: string;
+  createdAt: Date;
+};
+
 @Injectable()
 export class VolcAssetService implements OnModuleInit {
   private readonly logger = new Logger(VolcAssetService.name);
   private env!: VolcEnv;
   // date string (YYYY-MM-DD) → groupId
   private readonly groupCache = new Map<string, string>();
+  private readonly memoryGroups = new Map<string, VolcReviewGroupMemoryRecord>();
+  private persistenceUnavailable = false;
+  private persistenceWarningLogged = false;
 
   constructor(
     private readonly config: ConfigService,
@@ -69,6 +80,52 @@ export class VolcAssetService implements OnModuleInit {
     return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
   }
 
+  private isPersistenceMissingError(err: any): boolean {
+    const code = typeof err?.code === 'string' ? err.code : '';
+    const message = String(err?.message || '').toLowerCase();
+    return (
+      code === 'P2021' ||
+      code === 'P2022' ||
+      message.includes('volcreviewgroup') ||
+      message.includes('volc_review_group') ||
+      message.includes('table') && message.includes('does not exist')
+    );
+  }
+
+  private markPersistenceUnavailable(err: any) {
+    this.persistenceUnavailable = true;
+    if (this.persistenceWarningLogged) return;
+    this.persistenceWarningLogged = true;
+    this.logger.warn(
+      `volcReviewGroup 表不可用，素材组复用降级为内存模式（重启后缓存会丢失）：${err?.message || err}`,
+    );
+  }
+
+  private async findPersistedGroup(date: string): Promise<VolcReviewGroupMemoryRecord | null> {
+    if (this.persistenceUnavailable) {
+      return this.memoryGroups.get(date) || null;
+    }
+    try {
+      return await this.prisma.volcReviewGroup.findUnique({ where: { date } });
+    } catch (err: any) {
+      if (!this.isPersistenceMissingError(err)) throw err;
+      this.markPersistenceUnavailable(err);
+      return this.memoryGroups.get(date) || null;
+    }
+  }
+
+  private async persistGroup(date: string, groupId: string): Promise<void> {
+    const record = { date, groupId, createdAt: new Date() };
+    this.memoryGroups.set(date, record);
+    if (this.persistenceUnavailable) return;
+    try {
+      await this.prisma.volcReviewGroup.create({ data: { date, groupId } });
+    } catch (err: any) {
+      if (!this.isPersistenceMissingError(err)) throw err;
+      this.markPersistenceUnavailable(err);
+    }
+  }
+
   private async call<T>(action: string, body: Record<string, any>): Promise<T> {
     if (!this.env.accessKey || !this.env.secretKey) {
       throw new Error('Volc asset access key not configured');
@@ -87,11 +144,24 @@ export class VolcAssetService implements OnModuleInit {
     });
     // Node/undici fetch ignores (and warns about) `Host`; remove before sending.
     const { Host: _host, ...fetchHeaders } = signed.headers;
-    const resp = await fetch(signed.url, {
-      method: 'POST',
-      headers: fetchHeaders,
-      body: jsonBody,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), VOLC_API_TIMEOUT_MS);
+    let resp: Response;
+    try {
+      resp = await fetch(signed.url, {
+        method: 'POST',
+        headers: fetchHeaders,
+        body: jsonBody,
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw new Error(`Volc ${action} timeout after ${VOLC_API_TIMEOUT_MS}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const text = await resp.text();
     if (!resp.ok) {
       let detail = text.slice(0, 200);
@@ -127,7 +197,7 @@ export class VolcAssetService implements OnModuleInit {
     const cached = this.groupCache.get(date);
     if (cached) return cached;
 
-    const existing = await this.prisma.volcReviewGroup.findUnique({ where: { date } });
+    const existing = await this.findPersistedGroup(date);
     if (existing) {
       this.groupCache.set(date, existing.groupId);
       return existing.groupId;
@@ -141,7 +211,7 @@ export class VolcAssetService implements OnModuleInit {
     });
     const groupId = resp?.Id;
     if (!groupId) throw new Error('Volc CreateAssetGroup: empty Id');
-    await this.prisma.volcReviewGroup.create({ data: { date, groupId } });
+    await this.persistGroup(date, groupId);
     this.groupCache.set(date, groupId);
     return groupId;
   }
@@ -191,9 +261,18 @@ export class VolcAssetService implements OnModuleInit {
   }
 
   async listReviewGroups() {
-    return this.prisma.volcReviewGroup.findMany({
-      orderBy: { date: 'desc' },
-    });
+    if (this.persistenceUnavailable) {
+      return Array.from(this.memoryGroups.values()).sort((a, b) => b.date.localeCompare(a.date));
+    }
+    try {
+      return await this.prisma.volcReviewGroup.findMany({
+        orderBy: { date: 'desc' },
+      });
+    } catch (err: any) {
+      if (!this.isPersistenceMissingError(err)) throw err;
+      this.markPersistenceUnavailable(err);
+      return Array.from(this.memoryGroups.values()).sort((a, b) => b.date.localeCompare(a.date));
+    }
   }
 
   // date: YYYY-MM-DD（北京时间）。不传则取 3 天前。
@@ -204,11 +283,19 @@ export class VolcAssetService implements OnModuleInit {
       return d.toISOString().slice(0, 10);
     })();
 
-    const record = await this.prisma.volcReviewGroup.findUnique({ where: { date: targetDate } });
+    const record = await this.findPersistedGroup(targetDate);
     if (!record) return { date: targetDate, deleted: false };
 
     await this.deleteAssetGroup(record.groupId);
-    await this.prisma.volcReviewGroup.delete({ where: { date: targetDate } });
+    this.memoryGroups.delete(targetDate);
+    if (!this.persistenceUnavailable) {
+      try {
+        await this.prisma.volcReviewGroup.delete({ where: { date: targetDate } });
+      } catch (err: any) {
+        if (!this.isPersistenceMissingError(err)) throw err;
+        this.markPersistenceUnavailable(err);
+      }
+    }
     this.groupCache.delete(targetDate);
     return { date: targetDate, deleted: true };
   }

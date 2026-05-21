@@ -167,20 +167,27 @@ async function verifyUploadedAssetReadable(
   if (candidates.length === 0) return false;
 
   const headers: Record<string, string> = { Range: "bytes=0-0" };
-  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const attempts = [0, 250, 600, 1200];
 
-  for (const checkTarget of candidates) {
-    try {
-      const res = await fetchWithAuth(checkTarget, {
-        method: "GET",
-        headers,
-        auth: authToken ? "omit" : "auto",
-        credentials: authToken ? "omit" : "include",
-        allowRefresh: false,
-      });
-      if (res.ok) return true;
-    } catch {
-      // try next target
+  for (const delayMs of attempts) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
+    }
+
+    for (const checkTarget of candidates) {
+      try {
+        // /api/assets/proxy 是公开读接口。这里必须禁用凭证，否则跨域绝对地址
+        // 会触发浏览器拦截：Access-Control-Allow-Origin=* 不能搭配 credentials=include。
+        const res = await fetch(checkTarget, {
+          method: "GET",
+          headers,
+          credentials: "omit",
+          cache: "no-store",
+        });
+        if (res.ok || res.status === 206) return true;
+      } catch {
+        // try next target / retry after short propagation delay
+      }
     }
   }
   return false;

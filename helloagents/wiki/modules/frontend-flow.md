@@ -15,6 +15,8 @@
 ## 2026-04-21 Update
 - Fixed legacy edge reconnection on project reopen: historical `sourceHandle` values such as `image` / `image1` / `image-1` are now normalized to current ids (`img` / `img1`) during Flow edge hydration/serialization.
 - Added compatibility source handle on `ImageCompressNode` so both `image` and `img` references can reconnect safely, avoiding visual “all edges disconnected�?regressions in older projects after reload.
+- Image node Volc review and bio-auth buttons resolve their submission URL from `data.imageUrl`, crop base refs, and upstream connected images, then normalize proxy/key refs to a public URL before calling backend Volc APIs.
+- Image node review/auth state follows the optimized lifecycle: review expires after 3 days, bio-auth after 30 days, `processing` buttons are disabled, interrupted `processing` states without task ids are marked failed, and polling only runs while status is `processing`.
 
 ## 2026-04-17 Update
 - Flow 缩放事件在节点输入框场景下调整为“缩放优先”：`TextPrompt/TextPromptPro/Analysis/VideoAnalysis` �?`textarea` 在缩放手势下会放行给 Flow 画布（按 `wheelZoomMode` 计算），避免输入框捕获滚轮后触发浏览器整页缩放；非缩放滚轮仍保留输入区原生滚动�?

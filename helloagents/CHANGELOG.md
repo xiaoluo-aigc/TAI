@@ -6,6 +6,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Fixed
+- OSS image upload readability checks now call the public asset proxy without credentials and retry briefly after direct PUT upload, preventing `Access-Control-Allow-Origin=*` credential-mode failures from making readable thumbnails look broken.
+- Volc review groups and bio-auth history groups now degrade to in-memory reuse when `volcReviewGroup` / `bioAuthGroup` persistence is unavailable, logging only one warning instead of breaking review/auth flows.
+- Volc asset review and bio-auth API calls now have frontend and backend timeouts, so inaccessible image URLs or slow upstream Volc requests fail back to node state instead of leaving Image buttons spinning indefinitely.
+- Flow/Image review and bio-auth buttons now resolve a public source URL from the current image node, crop base, or upstream image connection instead of only `data.imageUrl`, so connected/cropped image nodes can use the Volc asset review and face-auth flows.
+- Bio-auth callback handling now accepts GET or POST callbacks and common `BytedToken` / `ResultCode` parameter casings, reducing stuck `processing` tasks when the upstream callback shape differs.
 - Asset proxy read path now uses real async signed OSS URLs (`OssService.signUrl`) instead of pseudo-sync fallback behavior, improving private bucket compatibility and reducing false 404s on `/api/assets/proxy?key=...`.
 - Project cloud-save now validates newly introduced managed asset keys before persistence; if OSS objects are missing, save is blocked with `400` to prevent persisting broken references.
 

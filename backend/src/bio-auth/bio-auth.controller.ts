@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Body,
   Controller,
@@ -28,12 +29,54 @@ export class BioAuthController {
     return String(uid);
   }
 
+  private firstString(...values: unknown[]): string {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim()) return value.trim();
+      if (typeof value === 'number') return String(value);
+    }
+    return '';
+  }
+
+  private async handleCallbackPayload(query: any, body?: any) {
+    const bytedToken = this.firstString(
+      query?.bytedToken,
+      query?.BytedToken,
+      query?.byted_token,
+      query?.bytedtoken,
+      body?.bytedToken,
+      body?.BytedToken,
+      body?.byted_token,
+      body?.bytedtoken,
+    );
+    const resultCode = this.firstString(
+      query?.resultCode,
+      query?.ResultCode,
+      query?.result_code,
+      query?.code,
+      body?.resultCode,
+      body?.ResultCode,
+      body?.result_code,
+      body?.code,
+    );
+
+    if (!bytedToken) throw new BadRequestException('Missing bytedToken');
+    this.logger.log(`bio-auth callback: bytedToken=${bytedToken.slice(0, 20)}… resultCode=${resultCode}`);
+    await this.svc.handleCallback(bytedToken, resultCode);
+    return { ok: true };
+  }
+
   @UseGuards(ApiKeyOrJwtGuard)
   @Post('start')
   async start(@Req() req: any, @Body() dto: StartBioAuthDto) {
     const userId = this.resolveUserId(req);
     this.logger.log(`bio-auth start: user=${userId} imageUrl=${dto.imageUrl.slice(0, 80)}`);
-    return this.svc.startTask(userId, dto.imageUrl);
+    try {
+      return await this.svc.startTask(userId, dto.imageUrl);
+    } catch (err: any) {
+      const message = err?.message || '启动人脸认证失败';
+      this.logger.error(`bio-auth start failed for user ${userId}: ${message}`);
+      throw new BadGatewayException(message);
+    }
   }
 
   @UseGuards(ApiKeyOrJwtGuard)
@@ -54,18 +97,24 @@ export class BioAuthController {
   async createAsset(@Req() req: any, @Body() dto: CreateAssetInGroupDto) {
     const userId = this.resolveUserId(req);
     this.logger.log(`bio-auth createAsset: user=${userId} groupId=${dto.groupId.slice(0, 20)}…`);
-    return this.svc.createAssetInGroup(userId, dto.groupId, dto.imageUrl);
+    try {
+      return await this.svc.createAssetInGroup(userId, dto.groupId, dto.imageUrl);
+    } catch (err: any) {
+      if (err?.getStatus?.() === 403) throw err;
+      const message = err?.message || '上传认证素材失败';
+      this.logger.error(`bio-auth createAsset failed for user ${userId}: ${message}`);
+      throw new BadGatewayException(message);
+    }
   }
 
   // 火山引擎活体检测回调（无需认证，由火山引擎服务器调用）
   @Get('callback')
-  async callback(
-    @Query('bytedToken') bytedToken: string,
-    @Query('resultCode') resultCode: string,
-  ) {
-    if (!bytedToken) throw new BadRequestException('Missing bytedToken');
-    this.logger.log(`bio-auth callback: bytedToken=${bytedToken.slice(0, 20)}… resultCode=${resultCode}`);
-    await this.svc.handleCallback(bytedToken, resultCode ?? '');
-    return { ok: true };
+  async callback(@Query() query: any) {
+    return this.handleCallbackPayload(query);
+  }
+
+  @Post('callback')
+  async callbackPost(@Query() query: any, @Body() body: any) {
+    return this.handleCallbackPayload(query, body);
   }
 }
