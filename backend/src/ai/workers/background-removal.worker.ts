@@ -7,6 +7,34 @@ type WorkerRequest = {
   mimeType?: string;
 };
 
+function summarizeLoaderError(error: unknown): string {
+  if (error instanceof Error) {
+    const anyError = error as Error & { code?: string; cause?: unknown };
+    const code = anyError.code ? ` code=${String(anyError.code)}` : '';
+    const cause =
+      anyError.cause instanceof Error
+        ? ` cause=${anyError.cause.name}:${anyError.cause.message}`
+        : '';
+    return `${anyError.name}: ${anyError.message}${code}${cause}`;
+  }
+  return String(error);
+}
+
+function resolveRemovalModuleEntry(): string {
+  const packageSpec = '@imgly/background-removal-node';
+  const lookupPaths = [__dirname, process.cwd()];
+
+  for (const basePath of lookupPaths) {
+    try {
+      return require.resolve(packageSpec, { paths: [basePath] });
+    } catch {
+      // ignore and continue
+    }
+  }
+
+  return require.resolve(packageSpec);
+}
+
 function resolveLocalModelPublicPath(): string {
   const resolveFromInstalledPackage = (): string | null => {
     const packageSpec = '@imgly/background-removal-node/package.json';
@@ -70,7 +98,9 @@ async function main() {
 
     const mimeType = payload.mimeType || 'image/png';
     const blob = new Blob([Buffer.from(payload.imageBase64, 'base64')], { type: mimeType });
-    const mod = await import('@imgly/background-removal-node');
+    const entryPath = resolveRemovalModuleEntry();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require(entryPath);
     const result = await mod.removeBackground(blob, {
       publicPath: resolveLocalModelPublicPath(),
       output: {
@@ -87,7 +117,7 @@ async function main() {
       })
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = summarizeLoaderError(error);
     process.stdout.write(JSON.stringify({ ok: false, error: message }));
     process.exitCode = 1;
   }

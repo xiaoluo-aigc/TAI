@@ -34,6 +34,34 @@ export class BackgroundRemovalService {
     return this.getRemoveBgApiKey().length > 0;
   }
 
+  private summarizeLoaderError(error: unknown): string {
+    if (error instanceof Error) {
+      const anyError = error as Error & { code?: string; cause?: unknown };
+      const code = anyError.code ? ` code=${String(anyError.code)}` : '';
+      const cause =
+        anyError.cause instanceof Error
+          ? ` cause=${anyError.cause.name}:${anyError.cause.message}`
+          : '';
+      return `${anyError.name}: ${anyError.message}${code}${cause}`;
+    }
+    return String(error);
+  }
+
+  private resolveRemovalModuleEntry(): string {
+    const packageSpec = '@imgly/background-removal-node';
+    const lookupPaths = [__dirname, process.cwd()];
+
+    for (const basePath of lookupPaths) {
+      try {
+        return require.resolve(packageSpec, { paths: [basePath] });
+      } catch {
+        // ignore and continue
+      }
+    }
+
+    return require.resolve(packageSpec);
+  }
+
   /**
    * 使用 remove.bg API 移除背景
    * @param imageBuffer 图像 Buffer
@@ -88,17 +116,21 @@ export class BackgroundRemovalService {
 
     try {
       this.logger.log('📦 Loading @imgly/background-removal-node module...');
-      // 动态导入以支持可选依赖
-      const mod = await import('@imgly/background-removal-node');
+      const entryPath = this.resolveRemovalModuleEntry();
+      this.logger.log(`📦 Resolved @imgly/background-removal-node entry: ${entryPath}`);
+      // 使用 Node 的真实解析结果加载，兼容 pnpm/软链接布局。
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mod = require(entryPath);
       this.removalModule = mod;
       this.localModuleAvailable = true;
       this.logger.log('✅ @imgly/background-removal-node loaded successfully');
       return mod;
     } catch (error) {
       this.localModuleAvailable = false;
-      this.logger.error('❌ Failed to load @imgly/background-removal-node', error);
+      const detail = this.summarizeLoaderError(error);
+      this.logger.error(`❌ Failed to load @imgly/background-removal-node: ${detail}`);
       throw new Error(
-        'Background removal module is not available. Please ensure @imgly/background-removal-node is installed.'
+        `Background removal module is not available. ${detail}`
       );
     }
   }
