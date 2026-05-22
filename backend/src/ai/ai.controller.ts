@@ -3949,25 +3949,240 @@ export class AiController {
   async convert2Dto3D(@Body() dto: Convert2Dto3DDto, @Req() req: any) {
     this.logger.log('🎨 2D to 3D conversion request received');
 
-    return this.withCredits(req, 'convert-2d-to-3d', undefined, async () => {
-      const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
-      const normalizedImageUrl = dto.imageUrl
-        ? this.normalizeImageUrlForUpstream(dto.imageUrl)
-        : undefined;
-      const result = await this.convert2Dto3DService.convert2Dto3D({
-        imageUrl: normalizedImageUrl,
-        prompt: dto.prompt,
-        projectId: dto.projectId,
-        userId: typeof userId === 'string' ? userId : undefined,
-      });
+    const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
+    const normalizedImageUrl = dto.imageUrl
+      ? this.normalizeImageUrlForUpstream(dto.imageUrl)
+      : undefined;
+    let apiUsageId: string | undefined;
+    this.logger.log(
+      `[2D->3D] create request meta userId=${typeof userId === 'string' ? userId : '-'} projectId=${
+        dto.projectId || '-'
+      } hasImage=${Boolean(normalizedImageUrl)} promptLength=${dto.prompt?.trim().length || 0} normalizedImageUrl=${
+        normalizedImageUrl ? normalizedImageUrl.slice(0, 200) : '-'
+      }`,
+    );
+
+    try {
+      const response = await this.withCredits(
+        req,
+        'convert-2d-to-3d',
+        undefined,
+        async () => {
+          const taskId = `async-2d3d-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          this.logger.log(
+            `[2D->3D] creating async task taskId=${taskId} apiUsageId=${apiUsageId || '-'} projectId=${
+              dto.projectId || '-'
+            }`,
+          );
+          createAsyncTask(taskId);
+
+          if (apiUsageId) {
+            try {
+              await this.creditsService.updateApiUsageRequestParams(apiUsageId, { taskId });
+              this.logger.log(
+                `[2D->3D] bound apiUsageId=${apiUsageId} to taskId=${taskId}`,
+              );
+            } catch (error) {
+              this.logger.warn(
+                `[2D->3D] Failed to bind taskId to apiUsage: ${this.summarizeError(error)}`,
+              );
+            }
+          }
+
+          this.startAsyncConvert2Dto3DTask(taskId, {
+            imageUrl: normalizedImageUrl,
+            prompt: dto.prompt,
+            projectId: dto.projectId,
+            userId: typeof userId === 'string' ? userId : undefined,
+            apiUsageId,
+          });
+
+          return {
+            success: true,
+            taskId,
+            status: 'pending' as const,
+            message: '2D转3D任务已提交，请通过 taskId 轮询查询进度',
+          };
+      },
+      1,
+      1,
+      false,
+      undefined,
+      {
+        onApiUsageId: (id: string) => {
+          apiUsageId = id;
+          this.logger.log(`[2D->3D] withCredits allocated apiUsageId=${id}`);
+        },
+          skipFinalizeSuccessIf: () => true,
+        },
+      );
+
+      this.logger.log(
+        `[2D->3D] create request accepted taskId=${response.taskId || '-'} apiUsageId=${apiUsageId || '-'} status=${
+          response.status || '-'
+        }`,
+      );
 
       return {
-        success: true,
-        modelUrl: result.modelUrl,
-        promptId: result.promptId,
-        modelKey: result.modelKey,
+        success: response.success,
+        taskId: response.taskId,
+        status: response.status,
+        message: response.message,
       };
-    }, 1, 1);
+    } catch (error) {
+      this.logger.error(
+        `[2D->3D] create request failed userId=${typeof userId === 'string' ? userId : '-'} projectId=${
+          dto.projectId || '-'
+        } apiUsageId=${apiUsageId || '-'} error=${this.summarizeError(error)}`,
+      );
+      throw error;
+    }
+  }
+
+  @Get('convert-2d-to-3d/task/:taskId')
+  async queryConvert2Dto3DTask(@Param('taskId') taskId: string) {
+    const trimmedTaskId = typeof taskId === 'string' ? taskId.trim() : '';
+    if (!trimmedTaskId) {
+      throw new BadRequestException('taskId 不能为空');
+    }
+
+    const task = getAsyncTaskResult(trimmedTaskId);
+    if (!task) {
+      throw new BadRequestException('任务不存在或已过期');
+    }
+
+    if (task.status === 'completed') {
+      return {
+        success: true,
+        taskId: trimmedTaskId,
+        status: 'completed',
+        modelUrl: task.result?.modelUrl,
+        promptId: task.result?.promptId,
+        modelKey: task.result?.modelKey,
+      };
+    }
+
+    if (task.status === 'failed') {
+      return {
+        success: false,
+        taskId: trimmedTaskId,
+        status: 'failed',
+        error: task.error || '2D转3D任务失败',
+      };
+    }
+
+    return {
+      success: true,
+      taskId: trimmedTaskId,
+      status: task.status,
+      message: task.status === 'processing' ? '2D转3D处理中' : '2D转3D任务排队中',
+    };
+  }
+
+  private startAsyncConvert2Dto3DTask(
+    taskId: string,
+    options: {
+      imageUrl?: string;
+      prompt?: string;
+      projectId?: string;
+      userId?: string;
+      apiUsageId?: string;
+    },
+  ) {
+    this.logger.log(
+      `[2D->3D] async task queued taskId=${taskId} apiUsageId=${options.apiUsageId || '-'} projectId=${
+        options.projectId || '-'
+      } hasImage=${Boolean(options.imageUrl)} promptLength=${options.prompt?.trim().length || 0}`,
+    );
+    void this.processAsyncConvert2Dto3DTask(taskId, options).catch((error) => {
+      this.logger.error(
+        `[2D->3D] Async task ${taskId} failed: ${this.summarizeError(error)}`,
+      );
+    });
+  }
+
+  private async processAsyncConvert2Dto3DTask(
+    taskId: string,
+    options: {
+      imageUrl?: string;
+      prompt?: string;
+      projectId?: string;
+      userId?: string;
+      apiUsageId?: string;
+    },
+  ) {
+    const startedAt = Date.now();
+    this.logger.log(
+      `[2D->3D] async task started taskId=${taskId} apiUsageId=${options.apiUsageId || '-'} imageUrl=${
+        options.imageUrl ? options.imageUrl.slice(0, 200) : '-'
+      }`,
+    );
+    updateAsyncTask(taskId, { status: 'processing' });
+
+    try {
+      const result = await this.convert2Dto3DService.convert2Dto3D({
+        imageUrl: options.imageUrl,
+        prompt: options.prompt,
+        projectId: options.projectId,
+        userId: options.userId,
+      });
+
+      updateAsyncTask(taskId, {
+        status: 'completed',
+        result: {
+          status: 'completed',
+          taskId,
+          modelUrl: result.modelUrl,
+          modelKey: result.modelKey,
+          promptId: result.promptId,
+        },
+      });
+
+      if (options.apiUsageId) {
+        await this.creditsService.updateApiUsageStatus(
+          options.apiUsageId,
+          ApiResponseStatus.SUCCESS,
+          undefined,
+          Math.max(0, Date.now() - startedAt),
+        );
+      }
+
+      this.logger.log(
+        `[2D->3D] Async task ${taskId} completed modelUrl=${result.modelUrl.slice(0, 200)} modelKey=${
+          result.modelKey || '-'
+        } promptId=${result.promptId || '-'}`,
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : '2D转3D任务执行失败';
+
+      updateAsyncTask(taskId, {
+        status: 'failed',
+        error: errorMessage,
+      });
+
+      if (options.apiUsageId) {
+        try {
+          await this.creditsService.updateApiUsageStatus(
+            options.apiUsageId,
+            ApiResponseStatus.FAILED,
+            errorMessage,
+            Math.max(0, Date.now() - startedAt),
+          );
+        } catch (statusError) {
+          this.logger.error(
+            `[2D->3D] Failed to mark apiUsage failed for task ${taskId}: ${this.summarizeError(
+              statusError,
+            )}`,
+          );
+        }
+      }
+
+      this.logger.error(
+        `[2D->3D] async task execution failed taskId=${taskId} apiUsageId=${options.apiUsageId || '-'} error=${errorMessage}`,
+      );
+      throw error;
+    }
   }
 
   @Post('expand-image')

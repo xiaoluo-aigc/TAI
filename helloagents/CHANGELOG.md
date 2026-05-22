@@ -6,6 +6,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Fixed
+- 2D转3D 改为异步任务流：`POST /api/ai/convert-2d-to-3d` 现在只负责创建任务并立即返回 `taskId`，后端在请求外继续执行混元 3D 提交/轮询/持久化，新增 `GET /api/ai/convert-2d-to-3d/task/:taskId` 供前端轮询，避免线上长请求在网关层触发 `504`。
 - Windows background removal local fallback now runs in an isolated worker process instead of the Nest main process, so `@imgly/background-removal-node` native crashes no longer take down the backend or wipe frontend session state during “极速抠图”.
 
 ### Fixed

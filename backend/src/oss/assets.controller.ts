@@ -183,6 +183,8 @@ export class AssetsController {
     const range = pickHeader('range');
     const ifNoneMatch = pickHeader('if-none-match');
     const ifModifiedSince = pickHeader('if-modified-since');
+    // 避免 Node fetch 透明解压后仍沿用上游压缩前 content-length，导致浏览器读取到截断的二进制流。
+    upstreamHeaders['accept-encoding'] = 'identity';
     if (range) upstreamHeaders['range'] = range;
     if (ifNoneMatch) upstreamHeaders['if-none-match'] = ifNoneMatch;
     if (ifModifiedSince) upstreamHeaders['if-modified-since'] = ifModifiedSince;
@@ -300,9 +302,9 @@ export class AssetsController {
     );
     reply.header('cross-origin-resource-policy', 'cross-origin');
 
+    const upstreamContentEncoding = upstream.headers.get('content-encoding');
     const passthroughHeaders = [
       'content-type',
-      'content-length',
       'content-range',
       'accept-ranges',
       'etag',
@@ -314,6 +316,14 @@ export class AssetsController {
       const value = upstream.headers.get(name);
       if (value) reply.header(name, value);
     });
+    const upstreamContentLength = upstream.headers.get('content-length');
+    if (upstreamContentLength && !upstreamContentEncoding) {
+      reply.header('content-length', upstreamContentLength);
+    } else if (upstreamContentLength && upstreamContentEncoding) {
+      this.logger.warn(
+        `[assets/proxy] skip content-length passthrough because upstream is encoded: encoding=${upstreamContentEncoding} key=${managedKeyForLog || '-'} target=${parsed.toString()}`,
+      );
+    }
 
     // 仅对成功响应缓存，避免把偶发的 4xx/5xx “缓存成空白图”。
     // 上游若未提供 cache-control，则设置一个温和的默认值。

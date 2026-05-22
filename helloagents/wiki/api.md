@@ -27,6 +27,9 @@
 > 具体请求/响应以 Swagger 与 Controller 实现为准。
 
 ## 近期接口变更（摘要）
+- `POST /api/ai/convert-2d-to-3d`：
+  - 由同步返回 `modelUrl` 改为异步创建任务，立即返回 `taskId/status/message`。
+  - 新增 `GET /api/ai/convert-2d-to-3d/task/:taskId`，前端轮询直到拿到 `modelUrl` 或失败状态。
 - `POST /api/ai/analyze-image`：
   - 新增可选 `sourceImages: string[]`，支持多图分析。
   - 兼容原有 `sourceImage: string` 单图请求。

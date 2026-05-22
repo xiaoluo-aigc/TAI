@@ -104,6 +104,37 @@ export default function LoginPage() {
     return () => clearInterval(timer);
   }, [sendCooldown]);
 
+  const agreementSection = (
+    <div className='flex items-start gap-3'>
+      <button
+        type='button'
+        onClick={() => setAgreeTerms(!agreeTerms)}
+        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all sm:mt-0 ${
+          agreeTerms ? "border-white bg-white" : "border-white/50 bg-transparent"
+        }`}
+      >
+        {agreeTerms && <Check className='h-3.5 w-3.5 text-black' />}
+      </button>
+      <label
+        onClick={() => setAgreeTerms(!agreeTerms)}
+        className='cursor-pointer text-left text-xs leading-5 text-white'
+      >
+        {t("auth.agreements.prefix")}{" "}
+        <Link to='/legal/terms' className='mx-1 text-blue-400 underline hover:text-blue-300' target='_blank' onClick={(e) => e.stopPropagation()}>
+          {t("auth.agreements.terms")}
+        </Link>
+        {t("auth.agreements.comma")}
+        <Link to='/legal/privacy' className='mx-1 text-blue-400 underline hover:text-blue-300' target='_blank' onClick={(e) => e.stopPropagation()}>
+          {t("auth.agreements.privacy")}
+        </Link>{" "}
+        {t("auth.agreements.and")}{" "}
+        <Link to='/legal/community' className='mx-1 text-blue-400 underline hover:text-blue-300' target='_blank' onClick={(e) => e.stopPropagation()}>
+          {t("auth.agreements.community")}
+        </Link>
+      </label>
+    </div>
+  );
+
   return (
     <div className='relative flex min-h-screen items-start justify-center overflow-y-auto overflow-x-hidden px-4 py-6 sm:items-center sm:px-6 sm:py-10'>
       <WelcomeShaderBackground className='z-[1]' />
@@ -179,6 +210,7 @@ export default function LoginPage() {
                     </button>
                   </div>
                   {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
+                  {agreementSection}
                   <Button
                     type='submit'
                     className='w-full bg-blue-500 hover:bg-blue-600 text-white border-transparent rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
@@ -247,6 +279,7 @@ export default function LoginPage() {
                   </div>
 
                   {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
+                  {agreementSection}
                   <Button
                     type='submit'
                     className='w-full bg-blue-500 hover:bg-blue-600 text-white border-transparent rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
@@ -279,38 +312,6 @@ export default function LoginPage() {
                 </form>
               )}
             </div>
-          </div>
-        </Card>
-
-        {/* 协议卡片 */}
-        <Card className='w-fit mt-6 border-0 bg-blue-500/3 p-4 rounded-2xl backdrop-blur-md'>
-          <div className='flex items-start justify-center gap-2 sm:items-center'>
-            <button
-              type='button'
-              onClick={() => setAgreeTerms(!agreeTerms)}
-              className={`mt-0.5 flex h-3 w-3 shrink-0 items-center justify-center rounded-full border-2 transition-all sm:mt-0 ${
-                agreeTerms ? "bg-white border-white" : "bg-transparent border-white/50"
-              }`}
-            >
-              {agreeTerms && <Check className='w-3 h-3 text-black' />}
-            </button>
-            <label
-              onClick={() => setAgreeTerms(!agreeTerms)}
-              className='cursor-pointer text-left text-xs leading-5 text-white/100'
-            >
-              {t("auth.agreements.prefix")}{" "}
-              <Link to='/legal/terms' className='text-blue-400 hover:text-blue-300 underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
-                {t("auth.agreements.terms")}
-              </Link>
-              {t("auth.agreements.comma")}
-              <Link to='/legal/privacy' className='text-blue-400 hover:text-blue-300 underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
-                {t("auth.agreements.privacy")}
-              </Link>{" "}
-              {t("auth.agreements.and")}{" "}
-              <Link to='/legal/community' className='text-blue-400 hover:text-blue-300 underline mx-1' target='_blank' onClick={(e) => e.stopPropagation()}>
-                {t("auth.agreements.community")}
-              </Link>
-            </label>
           </div>
         </Card>
       </div>

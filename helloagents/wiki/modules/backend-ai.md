@@ -17,7 +17,7 @@
 - `POST edit-image` / `blend-images`
 - `POST analyze-image` / `text-chat`
 - `POST remove-background`（含 public 变体�? `GET background-removal-info`
-- `POST convert-2d-to-3d` / `expand-image`
+- `POST convert-2d-to-3d` / `GET convert-2d-to-3d/task/:taskId` / `expand-image`
 - `POST generate-video` / `generate-video-provider` / `GET video-task/:provider/:taskId`
 - `POST video-task-success` / `POST video-task-refund`（异步视频任务前端轮询后的成�?失败回写�?
 - `POST generate-paperjs` / `img2vector`
@@ -46,6 +46,7 @@
 - Seedance 2.0 直连方舟链路已支持媒体优先请求：�?prompt 但有图片/视频/音频参考时不再错误拼接 `undefined` 文本；并同步放宽到官�?`4-15s`、`480P/720P`�? 种宽高比以及多模态参考组合�?
 - Seedance 2.0 模式选择会通过 `video_mode` 下发到方舟请求体，确�?`Seedance 2.0` 节点的模式化输入在上游生效�?
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保�?`pending`，前端轮询成功调�?`video-task-success` 标记 `success`，失败调�?`video-task-refund` 标记失败并退款�?
+- `convert-2d-to-3d` 已改为异步任务模式：创建接口立即返回 `taskId`，控制器在后台继续执行混元 3D `submit/query` 轮询与 OSS 持久化，前端通过 `/api/ai/convert-2d-to-3d/task/:taskId` 查询状态，避免线上代理在长轮询时返回 `504`。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会�?OSS 白名单拉取并转换�?dataURL�?
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置�?`banana_text_provider`：`auto`（Apimart�?47）、`legacy_auto`�?47→Apimart）、`apimart`、`legacy`�?
 - Banana 文本�?Apimart 时使�?`https://api.apimart.ai/v1/chat/completions`（OpenAI Chat Completions 兼容格式），鉴权复用 `NANO2_API_KEY`�?

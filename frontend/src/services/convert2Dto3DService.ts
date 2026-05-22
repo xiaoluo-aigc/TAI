@@ -30,6 +30,25 @@ export interface Convert2Dto3DResponse {
   error?: string;
 }
 
+export interface Convert2Dto3DTaskCreateResponse {
+  success: boolean;
+  taskId?: string;
+  status?: "pending" | "processing";
+  message?: string;
+  error?: string;
+}
+
+export interface Convert2Dto3DTaskStatusResponse {
+  success: boolean;
+  taskId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  modelUrl?: string;
+  promptId?: string;
+  modelKey?: string;
+  error?: string;
+  message?: string;
+}
+
 const extractApiErrorMessage = (errorData: unknown): string | null => {
   if (!errorData || typeof errorData !== "object") return null;
   const data = errorData as {
@@ -64,12 +83,18 @@ const isInsufficientCreditsMessage = (message: string): boolean => {
 };
 
 /**
- * 将2D图片转换为3D模型
+ * 创建2D转3D任务
  */
-export async function convert2Dto3D(
+export async function createConvert2Dto3DTask(
   request: Convert2Dto3DRequest
-): Promise<Convert2Dto3DResponse> {
+): Promise<Convert2Dto3DTaskCreateResponse> {
   try {
+    logger.info("2D to 3D create task request", {
+      hasImageUrl: Boolean(request.imageUrl),
+      imageUrl: request.imageUrl?.slice(0, 200),
+      projectId: request.projectId,
+      promptLength: request.prompt?.trim().length ?? 0,
+    });
     const response = await fetchWithAuth(buildUrl("/api/ai/convert-2d-to-3d"), {
       method: "POST",
       headers: {
@@ -100,23 +125,33 @@ export async function convert2Dto3D(
       }
       logger.error("2D to 3D conversion failed", {
         status: response.status,
+        rawError: rawErrorMessage,
         error: errorMessage,
+        errorData,
       });
 
       return {
         success: false,
-        modelUrl: "",
         error: errorMessage,
       };
     }
 
     const data = await response.json();
+    logger.info("2D to 3D create task response", {
+      taskId: data?.taskId,
+      status: data?.status,
+      success: data?.success,
+      message: data?.message,
+    });
 
     return {
-      success: true,
-      modelUrl: data.modelUrl,
-      promptId: data.promptId,
-      modelKey: data.modelKey,
+      success: Boolean(data?.success),
+      taskId: typeof data?.taskId === "string" ? data.taskId : undefined,
+      status:
+        data?.status === "pending" || data?.status === "processing"
+          ? data.status
+          : undefined,
+      message: typeof data?.message === "string" ? data.message : undefined,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Network error";
@@ -124,8 +159,126 @@ export async function convert2Dto3D(
 
     return {
       success: false,
-      modelUrl: "",
       error: message,
     };
   }
+}
+
+export async function queryConvert2Dto3DTask(
+  taskId: string
+): Promise<Convert2Dto3DTaskStatusResponse> {
+  const normalizedTaskId = taskId.trim();
+  if (!normalizedTaskId) {
+    return {
+      success: false,
+      taskId,
+      status: "failed",
+      error: "taskId 不能为空",
+    };
+  }
+
+  try {
+    const response = await fetchWithAuth(
+      buildUrl(`/api/ai/convert-2d-to-3d/task/${encodeURIComponent(normalizedTaskId)}`)
+    );
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const errorMessage =
+        extractApiErrorMessage(data) || `HTTP ${response.status}`;
+      return {
+        success: false,
+        taskId: normalizedTaskId,
+        status: "failed",
+        error: errorMessage,
+      };
+    }
+
+    const status =
+      data?.status === "pending" ||
+      data?.status === "processing" ||
+      data?.status === "completed" ||
+      data?.status === "failed"
+        ? data.status
+        : "failed";
+
+    return {
+      success: Boolean(data?.success),
+      taskId: normalizedTaskId,
+      status,
+      modelUrl: typeof data?.modelUrl === "string" ? data.modelUrl : undefined,
+      promptId: typeof data?.promptId === "string" ? data.promptId : undefined,
+      modelKey: typeof data?.modelKey === "string" ? data.modelKey : undefined,
+      error: typeof data?.error === "string" ? data.error : undefined,
+      message: typeof data?.message === "string" ? data.message : undefined,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Network error";
+    logger.error("2D to 3D task query error", error);
+    return {
+      success: false,
+      taskId: normalizedTaskId,
+      status: "failed",
+      error: message,
+    };
+  }
+}
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+
+export async function waitForConvert2Dto3DTask(
+  taskId: string,
+  options?: { maxWaitMs?: number; pollIntervalMs?: number }
+): Promise<Convert2Dto3DResponse> {
+  const maxWaitMs = options?.maxWaitMs ?? 10 * 60 * 1000;
+  const pollIntervalMs = options?.pollIntervalMs ?? 5000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < maxWaitMs) {
+    const result = await queryConvert2Dto3DTask(taskId);
+    if (result.status === "completed" && result.modelUrl) {
+      return {
+        success: true,
+        modelUrl: result.modelUrl,
+        promptId: result.promptId,
+        modelKey: result.modelKey,
+      };
+    }
+    if (result.status === "failed") {
+      return {
+        success: false,
+        modelUrl: "",
+        error: result.error || "2D转3D失败",
+      };
+    }
+
+    await sleep(pollIntervalMs);
+  }
+
+  return {
+    success: false,
+    modelUrl: "",
+    error: "2D转3D任务超时，请稍后重试。",
+  };
+}
+
+/**
+ * 将2D图片转换为3D模型
+ */
+export async function convert2Dto3D(
+  request: Convert2Dto3DRequest
+): Promise<Convert2Dto3DResponse> {
+  const createResult = await createConvert2Dto3DTask(request);
+  if (!createResult.success || !createResult.taskId) {
+    return {
+      success: false,
+      modelUrl: "",
+      error: createResult.error || "2D转3D任务创建失败",
+    };
+  }
+
+  return waitForConvert2Dto3DTask(createResult.taskId);
 }

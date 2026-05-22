@@ -34,7 +34,10 @@ import ImagePreviewModal, { type ImageItem } from "../ui/ImagePreviewModal";
 import backgroundRemovalService from "@/services/backgroundRemovalService";
 import { LoadingSpinner } from "../ui/loading-spinner";
 import { logger } from "@/utils/logger";
-import { convert2Dto3D } from "@/services/convert2Dto3DService";
+import {
+  createConvert2Dto3DTask,
+  waitForConvert2Dto3DTask,
+} from "@/services/convert2Dto3DService";
 import { generateOssKey, uploadToOSS } from "@/services/ossUploadService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import type { Model3DData } from "@/services/model3DUploadService";
@@ -2542,10 +2545,18 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             throw new Error(`无效的图片URL: ${imageUrl}`);
           }
 
-          const convertResult = await convert2Dto3D({
+          const createTaskResult = await createConvert2Dto3DTask({
             imageUrl,
             projectId: projectId ?? undefined,
           });
+
+          if (!createTaskResult.success || !createTaskResult.taskId) {
+            throw new Error(createTaskResult.error || "2D转3D任务创建失败");
+          }
+
+          const convertResult = await waitForConvert2Dto3DTask(
+            createTaskResult.taskId
+          );
 
           if (!convertResult.success || !convertResult.modelUrl) {
             throw new Error(convertResult.error || "2D转3D失败");

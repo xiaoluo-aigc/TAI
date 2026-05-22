@@ -40,6 +40,11 @@ export class Convert2Dto3DService {
 
     const imageUrl = typeof options.imageUrl === 'string' ? options.imageUrl.trim() : '';
     const prompt = typeof options.prompt === 'string' ? options.prompt.trim() : '';
+    this.logger.log(
+      `[2D->3D Service] start projectId=${options.projectId || '-'} userId=${options.userId || '-'} hasImage=${Boolean(
+        imageUrl,
+      )} promptLength=${prompt.length} imageUrl=${imageUrl ? imageUrl.slice(0, 200) : '-'}`,
+    );
 
     if (!imageUrl && !prompt) {
       throw new ServiceUnavailableException('Either imageUrl or prompt must be provided');
@@ -52,7 +57,11 @@ export class Convert2Dto3DService {
     }
 
     const jobId = await this.submitJob({ imageUrl: imageUrl || undefined, prompt: prompt || undefined });
+    this.logger.log(`[2D->3D Service] submit succeeded jobId=${jobId}`);
     const upstreamModelUrl = await this.waitForModelUrl(jobId, imageUrl);
+    this.logger.log(
+      `[2D->3D Service] query succeeded jobId=${jobId} upstreamModelUrl=${upstreamModelUrl.slice(0, 200)}`,
+    );
     const upstreamFormat = this.detectExplicitModelFormat(upstreamModelUrl);
     if (upstreamFormat === 'unsupported') {
       throw new ServiceUnavailableException(
@@ -63,6 +72,12 @@ export class Convert2Dto3DService {
       projectId: options.projectId,
       userId: options.userId,
     });
+
+    this.logger.log(
+      `[2D->3D Service] finish jobId=${jobId} finalModelUrl=${(persisted?.url || upstreamModelUrl).slice(0, 200)} modelKey=${
+        persisted?.key || '-'
+      }`,
+    );
 
     return {
       modelUrl: persisted?.url || upstreamModelUrl,
@@ -153,6 +168,11 @@ export class Convert2Dto3DService {
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      this.logger.log(
+        `[2D->3D Service] persist start modelUrl=${modelUrl.slice(0, 200)} projectId=${options?.projectId || '-'} userId=${
+          options?.userId || '-'
+        }`,
+      );
       const response = await fetch(modelUrl, { signal: controller.signal });
       if (!response.ok) {
         throw new ServiceUnavailableException(`Failed to fetch 3D model from upstream: HTTP ${response.status}`);
@@ -180,6 +200,9 @@ export class Convert2Dto3DService {
         ? `projects/${safeUserId}/generated-models`
         : 'ai/models/hunyuan';
       const key = `${keyPrefix}/2d-to-3d-${Date.now()}-${random}.${extension}`;
+      this.logger.log(
+        `[2D->3D Service] persist upload key=${key} contentType=${contentType} extension=${extension}`,
+      );
 
       const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable }).fromWeb;
       const nodeStream =
@@ -285,15 +308,27 @@ export class Convert2Dto3DService {
 
   private async waitForModelUrl(jobId: string, sourceImageUrl: string): Promise<string> {
     const deadline = Date.now() + this.maxWaitMs;
+    let attempt = 0;
 
     while (Date.now() < deadline) {
+      attempt += 1;
       const response = await this.fetchJson(this.queryUrl, { JobId: jobId });
       const modelUrl = this.extractModelUrl(response, sourceImageUrl);
       if (modelUrl) {
+        this.logger.log(
+          `[2D->3D Service] query hit model url on attempt=${attempt} jobId=${jobId}`,
+        );
         return modelUrl;
       }
 
       const status = this.extractStatus(response);
+      if (attempt <= 3 || attempt % 12 === 0) {
+        this.logger.log(
+          `[2D->3D Service] query pending attempt=${attempt} jobId=${jobId} status=${status || '-'} responseKeys=${
+            response && typeof response === 'object' ? Object.keys(response).slice(0, 12).join(',') : typeof response
+          }`,
+        );
+      }
       if (status) {
         if (this.isFailureStatus(status)) {
           throw new ServiceUnavailableException(`Hunyuan task failed: ${status}`);
