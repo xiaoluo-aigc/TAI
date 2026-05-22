@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
@@ -17,15 +18,20 @@ export class BackgroundRemovalService {
   private readonly isWindows = process.platform === 'win32';
 
   constructor(private readonly configService: ConfigService) {
-    // Windows 上 @imgly/background-removal-node 的 ONNX Runtime 有 GLib 兼容性问题
-    // 会导致进程崩溃，所以在 Windows 上默认禁用本地模块
     if (this.isWindows) {
-      this.localModuleAvailable = false;
       this.logger.warn(
-        '⚠️ Local background removal disabled on Windows due to ONNX Runtime compatibility issues. ' +
-        'Please configure REMOVE_BG_API_KEY for background removal functionality.'
+        '⚠️ Windows detected. Local background removal will run in isolated best-effort mode. ' +
+        'If local ONNX fails, configure REMOVE_BG_API_KEY for remove.bg fallback.'
       );
     }
+  }
+
+  private getRemoveBgApiKey(): string {
+    return (this.configService.get<string>('REMOVE_BG_API_KEY') || process.env.REMOVE_BG_API_KEY || '').trim();
+  }
+
+  private hasRemoveBgKey(): boolean {
+    return this.getRemoveBgApiKey().length > 0;
   }
 
   /**
@@ -34,7 +40,7 @@ export class BackgroundRemovalService {
    * @returns 透明PNG的base64数据
    */
   private async removeBackgroundViaRemoveBg(imageBuffer: Buffer): Promise<string> {
-    const apiKey = process.env.REMOVE_BG_API_KEY;
+    const apiKey = this.getRemoveBgApiKey();
     if (!apiKey) {
       throw new Error('REMOVE_BG_API_KEY not configured');
     }
@@ -77,12 +83,6 @@ export class BackgroundRemovalService {
 
     // 如果已知本地模块不可用，直接抛出错误
     if (this.localModuleAvailable === false) {
-      if (this.isWindows) {
-        throw new Error(
-          'Local background removal is disabled on Windows due to ONNX Runtime compatibility issues. ' +
-          'Please configure REMOVE_BG_API_KEY environment variable to use the remove.bg cloud service.'
-        );
-      }
       throw new Error('Local background removal module is not available on this system');
     }
 
@@ -107,6 +107,10 @@ export class BackgroundRemovalService {
    * 使用本地 ONNX 模块移除背景
    */
   private async removeBackgroundLocal(imageBuffer: Buffer, mimeType: string): Promise<string> {
+    if (this.isWindows) {
+      return this.removeBackgroundLocalIsolated(imageBuffer, mimeType);
+    }
+
     // 将Buffer转换为Blob并指定正确的MIME type
     const blob = new Blob([imageBuffer], { type: mimeType || 'image/png' });
 
@@ -143,6 +147,180 @@ export class BackgroundRemovalService {
 
     // 返回带data URI前缀的base64 (PNG格式)
     return `data:image/png;base64,${resultBase64}`;
+  }
+
+  private async removeBackgroundWithProviderFallback(
+    imageBuffer: Buffer,
+    mimeType: string,
+    sourceLabel: 'base64' | 'url' | 'file',
+  ): Promise<string> {
+    const hasRemoveBgKey = this.hasRemoveBgKey();
+
+    if (hasRemoveBgKey) {
+      try {
+        return await this.removeBackgroundViaRemoveBg(imageBuffer);
+      } catch (error) {
+        this.logger.warn(`⚠️ remove.bg API failed for ${sourceLabel}, trying local module...`, error);
+      }
+    }
+
+    if (!hasRemoveBgKey && this.isWindows && !this.canAttemptLocalRemoval()) {
+      throw new BadRequestException(
+        'Background removal is unavailable: Windows local worker/resources are missing, and REMOVE_BG_API_KEY is not configured.'
+      );
+    }
+
+    try {
+      return await this.removeBackgroundLocal(imageBuffer, mimeType);
+    } catch (localError) {
+      const localMessage = localError instanceof Error ? localError.message : String(localError);
+      this.logger.error(`❌ Local background removal failed for ${sourceLabel}:`, localMessage);
+
+      if (hasRemoveBgKey) {
+        throw new BadRequestException(
+          `Background removal failed. Both remove.bg API and local module failed. Local error: ${localMessage}`
+        );
+      }
+
+      throw new BadRequestException(
+        `Background removal failed: ${localMessage}. Consider configuring REMOVE_BG_API_KEY for better reliability.`
+      );
+    }
+  }
+
+  private getLocalWorkerPath(): string {
+    const workerExt = __filename.endsWith('.ts') ? 'ts' : 'js';
+    return path.resolve(__dirname, `../workers/background-removal.worker.${workerExt}`);
+  }
+
+  private hasLocalWorker(): boolean {
+    return fs.existsSync(this.getLocalWorkerPath());
+  }
+
+  private hasLocalResources(): boolean {
+    try {
+      this.resolveLocalModelPublicPath();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private canAttemptLocalRemoval(): boolean {
+    return this.hasLocalWorker() && this.hasLocalResources();
+  }
+
+  private async removeBackgroundLocalIsolated(
+    imageBuffer: Buffer,
+    mimeType: string,
+  ): Promise<string> {
+    const workerPath = this.getLocalWorkerPath();
+    if (!fs.existsSync(workerPath)) {
+      this.localModuleAvailable = false;
+      throw new Error(`Background removal worker not found: ${workerPath}`);
+    }
+
+    const args = __filename.endsWith('.ts')
+      ? ['-r', 'ts-node/register/transpile-only', workerPath]
+      : [workerPath];
+
+    this.logger.log('🧩 Running local background removal in isolated worker process');
+
+    const child = spawn(process.execPath, args, {
+      cwd: path.resolve(__dirname, '../../..'),
+      env: process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+
+    const timeoutMs = 120000;
+
+    return await new Promise<string>((resolve, reject) => {
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        this.localModuleAvailable = false;
+        if (!settled) {
+          settled = true;
+          reject(new Error('Background removal worker timed out'));
+        }
+      }, timeoutMs);
+
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+      });
+
+      child.on('error', (error) => {
+        this.localModuleAvailable = false;
+        finish(() => reject(error));
+      });
+
+      child.on('close', (code, signal) => {
+        const trimmedStdout = stdout.trim();
+        const trimmedStderr = stderr.trim();
+
+        if (trimmedStdout) {
+          try {
+            const parsed = JSON.parse(trimmedStdout) as {
+              ok?: boolean;
+              imageData?: string;
+              error?: string;
+            };
+
+            if (parsed.ok && typeof parsed.imageData === 'string' && parsed.imageData.length > 0) {
+              this.localModuleAvailable = true;
+              const imageData = parsed.imageData;
+              finish(() => resolve(imageData));
+              return;
+            }
+
+            this.localModuleAvailable = false;
+            finish(() =>
+              reject(
+                new Error(
+                  parsed.error ||
+                    `Background removal worker failed with exit code ${code ?? 'unknown'}`
+                )
+              )
+            );
+            return;
+          } catch {
+            // ignore parse error and use generic crash detail below
+          }
+        }
+
+        this.localModuleAvailable = false;
+        const crashDetail = trimmedStderr || `exit=${code ?? 'null'} signal=${signal ?? 'null'}`;
+        finish(() =>
+          reject(
+            new Error(`Background removal worker crashed before returning a result: ${crashDetail}`)
+          )
+        );
+      });
+
+      child.stdin.write(
+        JSON.stringify({
+          imageBase64: imageBuffer.toString('base64'),
+          mimeType,
+        })
+      );
+      child.stdin.end();
+    });
   }
 
   /**
@@ -195,35 +373,7 @@ export class BackgroundRemovalService {
 
     this.logger.log(`📊 Input image: ${(buffer.length / 1024).toFixed(2)}KB, MIME type: ${mimeType}`);
 
-    // 优先使用 remove.bg API（如果配置了）
-    const hasRemoveBgKey = !!process.env.REMOVE_BG_API_KEY;
-
-    if (hasRemoveBgKey) {
-      try {
-        return await this.removeBackgroundViaRemoveBg(buffer);
-      } catch (error) {
-        this.logger.warn('⚠️ remove.bg API failed, trying local module...', error);
-      }
-    }
-
-    // 尝试本地模块
-    try {
-      return await this.removeBackgroundLocal(buffer, mimeType);
-    } catch (localError) {
-      const localMessage = localError instanceof Error ? localError.message : String(localError);
-      this.logger.error('❌ Local background removal failed:', localMessage);
-
-      // 如果本地也失败了，给出明确的错误信息
-      if (hasRemoveBgKey) {
-        throw new BadRequestException(
-          `Background removal failed. Both remove.bg API and local module failed.`
-        );
-      } else {
-        throw new BadRequestException(
-          `Background removal failed: ${localMessage}. Consider configuring REMOVE_BG_API_KEY for better reliability.`
-        );
-      }
-    }
+    return this.removeBackgroundWithProviderFallback(buffer, mimeType, 'base64');
   }
 
   /**
@@ -252,34 +402,7 @@ export class BackgroundRemovalService {
 
     this.logger.log(`📊 Fetched image: ${(buffer.length / 1024).toFixed(2)}KB, MIME type: ${mimeType}`);
 
-    // 优先使用 remove.bg API（如果配置了）
-    const hasRemoveBgKey = !!process.env.REMOVE_BG_API_KEY;
-
-    if (hasRemoveBgKey) {
-      try {
-        return await this.removeBackgroundViaRemoveBg(buffer);
-      } catch (error) {
-        this.logger.warn('⚠️ remove.bg API failed, trying local module...', error);
-      }
-    }
-
-    // 尝试本地模块
-    try {
-      return await this.removeBackgroundLocal(buffer, mimeType);
-    } catch (localError) {
-      const localMessage = localError instanceof Error ? localError.message : String(localError);
-      this.logger.error('❌ Local background removal from URL failed:', localMessage);
-
-      if (hasRemoveBgKey) {
-        throw new BadRequestException(
-          `Background removal failed. Both remove.bg API and local module failed.`
-        );
-      } else {
-        throw new BadRequestException(
-          `Background removal failed: ${localMessage}. Consider configuring REMOVE_BG_API_KEY for better reliability.`
-        );
-      }
-    }
+    return this.removeBackgroundWithProviderFallback(buffer, mimeType, 'url');
   }
 
   /**
@@ -311,34 +434,7 @@ export class BackgroundRemovalService {
 
     this.logger.log(`📊 File size: ${(fileBuffer.length / 1024).toFixed(2)}KB, MIME type: ${mimeType}`);
 
-    // 优先使用 remove.bg API（如果配置了）
-    const hasRemoveBgKey = !!process.env.REMOVE_BG_API_KEY;
-
-    if (hasRemoveBgKey) {
-      try {
-        return await this.removeBackgroundViaRemoveBg(fileBuffer);
-      } catch (error) {
-        this.logger.warn('⚠️ remove.bg API failed, trying local module...', error);
-      }
-    }
-
-    // 尝试本地模块
-    try {
-      return await this.removeBackgroundLocal(fileBuffer, mimeType);
-    } catch (localError) {
-      const localMessage = localError instanceof Error ? localError.message : String(localError);
-      this.logger.error('❌ Local background removal from file failed:', localMessage);
-
-      if (hasRemoveBgKey) {
-        throw new BadRequestException(
-          `Background removal failed. Both remove.bg API and local module failed.`
-        );
-      } else {
-        throw new BadRequestException(
-          `Background removal failed: ${localMessage}. Consider configuring REMOVE_BG_API_KEY for better reliability.`
-        );
-      }
-    }
+    return this.removeBackgroundWithProviderFallback(fileBuffer, mimeType, 'file');
   }
 
   /**
@@ -347,8 +443,12 @@ export class BackgroundRemovalService {
    */
   async isAvailable(): Promise<boolean> {
     // 如果配置了 remove.bg API Key，服务就是可用的
-    if (process.env.REMOVE_BG_API_KEY) {
+    if (this.hasRemoveBgKey()) {
       return true;
+    }
+
+    if (this.isWindows) {
+      return this.canAttemptLocalRemoval();
     }
 
     // 否则检查本地模块
@@ -369,8 +469,10 @@ export class BackgroundRemovalService {
     version?: string;
     features: string[];
     provider?: string;
+    platform?: string;
+    reason?: string;
   }> {
-    const hasRemoveBgKey = !!process.env.REMOVE_BG_API_KEY;
+    const hasRemoveBgKey = this.hasRemoveBgKey();
 
     // 如果有 remove.bg API Key，优先报告该服务
     if (hasRemoveBgKey) {
@@ -378,6 +480,7 @@ export class BackgroundRemovalService {
         available: true,
         version: 'remove.bg API',
         provider: 'remove.bg',
+        platform: process.platform,
         features: [
           'Remove background with transparency',
           'Support PNG, JPEG, GIF, WebP',
@@ -388,12 +491,33 @@ export class BackgroundRemovalService {
     }
 
     // 检查本地模块
+    if (this.isWindows) {
+      const available = this.canAttemptLocalRemoval();
+      return {
+        available,
+        version: available ? 'isolated-worker' : undefined,
+        provider: available ? 'local-onnx-worker' : 'none',
+        platform: process.platform,
+        reason: available
+          ? 'Windows 环境将通过隔离子进程尝试本地 ONNX 抠图；若子进程崩溃，主服务不会断开。'
+          : 'Windows 本地抠图 worker 或模型资源缺失，且未配置 REMOVE_BG_API_KEY。',
+        features: available
+          ? [
+              'Remove background with transparency',
+              'Support PNG, JPEG, GIF, WebP',
+              'Isolated worker fallback on Windows',
+            ]
+          : [],
+      };
+    }
+
     try {
       const mod = await this.getRemovalModule();
       return {
         available: true,
         version: mod.version || 'unknown',
         provider: 'local-onnx',
+        platform: process.platform,
         features: [
           'Remove background with transparency',
           'Support PNG, JPEG, GIF, WebP',
@@ -405,6 +529,10 @@ export class BackgroundRemovalService {
       return {
         available: false,
         provider: 'none',
+        platform: process.platform,
+        reason: this.isWindows
+          ? 'Windows 环境下本地 ONNX 抠图为 best-effort；当前本地模块不可用，建议配置 REMOVE_BG_API_KEY 使用 remove.bg 云服务。'
+          : '本地抠图模块不可用，请检查 @imgly/background-removal-node 安装与运行时依赖。',
         features: [],
       };
     }

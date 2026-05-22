@@ -17,7 +17,8 @@ const buildUrl = (path: string) => {
 };
 
 export interface Convert2Dto3DRequest {
-  imageUrl: string; // OSS原生可访问的图片URL
+  imageUrl?: string; // OSS原生可访问的图片URL
+  prompt?: string;
   projectId?: string;
 }
 

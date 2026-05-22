@@ -3951,8 +3951,12 @@ export class AiController {
 
     return this.withCredits(req, 'convert-2d-to-3d', undefined, async () => {
       const userId = req?.user?.id || req?.user?.userId || req?.user?.sub;
-      const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
-      const result = await this.convert2Dto3DService.convert2Dto3D(normalizedImageUrl, {
+      const normalizedImageUrl = dto.imageUrl
+        ? this.normalizeImageUrlForUpstream(dto.imageUrl)
+        : undefined;
+      const result = await this.convert2Dto3DService.convert2Dto3D({
+        imageUrl: normalizedImageUrl,
+        prompt: dto.prompt,
         projectId: dto.projectId,
         userId: typeof userId === 'string' ? userId : undefined,
       });

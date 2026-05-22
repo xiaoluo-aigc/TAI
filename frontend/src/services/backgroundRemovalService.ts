@@ -1,8 +1,9 @@
 /**
  * 前端背景移除服务
- * 支持两种模式:
- * 1. 后端处理: 调用服务器API（推荐,总是可用）
- * 2. 前端快速处理: 使用@imgly/background-removal库(可选,可不安装)
+ * 当前统一走后端公开 API:
+ * 1. 前端将当前图片整理为 base64
+ * 2. POST /api/public/ai/remove-background
+ * 3. 后端根据环境选择 remove.bg 或本地 ONNX provider
  */
 
 import { logger } from "@/utils/logger";
@@ -155,7 +156,8 @@ class BackgroundRemovalService {
   }
 
   /**
-   * 主方法: 移除背景 (自动选择前端或后端)
+   * 主方法: 移除背景
+   * 当前按约定始终走后端公开 API，让 provider 选择在服务端统一处理。
    */
   async removeBackground(
     imageData: string,
@@ -198,7 +200,7 @@ class BackgroundRemovalService {
     try {
       logger.info(`🌐 Removing background from URL: ${url}`);
 
-      const response = await fetchWithAuth(`${API_BASE}/api/ai/remove-background`, {
+      const response = await fetchWithAuth(`${API_BASE}/api/public/ai/remove-background`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -243,7 +245,7 @@ class BackgroundRemovalService {
   async isAvailable(): Promise<boolean> {
     try {
       const response = await fetchWithAuth(
-        `${API_BASE}/api/ai/background-removal-info`,
+        `${API_BASE}/api/public/ai/background-removal-info`,
         {
           method: "GET",
         }
@@ -260,7 +262,7 @@ class BackgroundRemovalService {
   async getInfo() {
     try {
       const response = await fetchWithAuth(
-        `${API_BASE}/api/ai/background-removal-info`,
+        `${API_BASE}/api/public/ai/background-removal-info`,
         {
           method: "GET",
         }

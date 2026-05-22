@@ -32,20 +32,37 @@ export class Convert2Dto3DService {
   }
 
   async convert2Dto3D(
-    imageUrl: string,
-    options?: { projectId?: string; userId?: string },
+    options: { imageUrl?: string; prompt?: string; projectId?: string; userId?: string },
   ): Promise<{ modelUrl: string; promptId?: string; modelKey?: string }> {
     if (!this.apiKey) {
       throw new ServiceUnavailableException('HUNYUAN_3D_API_KEY is not configured');
     }
 
-    if (!imageUrl || typeof imageUrl !== 'string' || !/^https?:\/\//i.test(imageUrl)) {
-      throw new ServiceUnavailableException('Invalid image URL provided');
+    const imageUrl = typeof options.imageUrl === 'string' ? options.imageUrl.trim() : '';
+    const prompt = typeof options.prompt === 'string' ? options.prompt.trim() : '';
+
+    if (!imageUrl && !prompt) {
+      throw new ServiceUnavailableException('Either imageUrl or prompt must be provided');
     }
 
-    const jobId = await this.submitJob(imageUrl);
+    if (!imageUrl || typeof imageUrl !== 'string' || !/^https?:\/\//i.test(imageUrl)) {
+      if (!prompt) {
+        throw new ServiceUnavailableException('Invalid image URL provided');
+      }
+    }
+
+    const jobId = await this.submitJob({ imageUrl: imageUrl || undefined, prompt: prompt || undefined });
     const upstreamModelUrl = await this.waitForModelUrl(jobId, imageUrl);
-    const persisted = await this.persistModelToOss(upstreamModelUrl, options);
+    const upstreamFormat = this.detectExplicitModelFormat(upstreamModelUrl);
+    if (upstreamFormat === 'unsupported') {
+      throw new ServiceUnavailableException(
+        `Hunyuan returned an unsupported model format for frontend rendering: ${upstreamModelUrl}`,
+      );
+    }
+    const persisted = await this.persistModelToOss(upstreamModelUrl, {
+      projectId: options.projectId,
+      userId: options.userId,
+    });
 
     return {
       modelUrl: persisted?.url || upstreamModelUrl,
@@ -83,6 +100,41 @@ export class Convert2Dto3DService {
     return 'glb';
   }
 
+  private detectExplicitModelFormat(sourceUrl: string, contentType?: string | null): 'glb' | 'gltf' | 'unsupported' | null {
+    const mime = (contentType || '').toLowerCase();
+    if (mime.includes('model/gltf+json')) return 'gltf';
+    if (mime.includes('model/gltf-binary')) return 'glb';
+    if (
+      mime.includes('application/zip') ||
+      mime.includes('application/x-zip-compressed') ||
+      mime.includes('model/obj') ||
+      mime.includes('application/octet-stream+obj')
+    ) {
+      return 'unsupported';
+    }
+
+    try {
+      const pathname = new URL(sourceUrl).pathname.toLowerCase();
+      if (pathname.endsWith('.glb')) return 'glb';
+      if (pathname.endsWith('.gltf')) return 'gltf';
+      if (
+        pathname.endsWith('.zip') ||
+        pathname.endsWith('.fbx') ||
+        pathname.endsWith('.obj') ||
+        pathname.endsWith('.stl') ||
+        pathname.endsWith('.usdz') ||
+        pathname.endsWith('.usdc') ||
+        pathname.endsWith('.ply')
+      ) {
+        return 'unsupported';
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
+  }
+
   private async persistModelToOss(
     modelUrl: string,
     options?: { projectId?: string; userId?: string },
@@ -112,6 +164,12 @@ export class Convert2Dto3DService {
       }
 
       const contentType = response.headers.get('content-type') || 'model/gltf-binary';
+      const explicitFormat = this.detectExplicitModelFormat(modelUrl, contentType);
+      if (explicitFormat === 'unsupported') {
+        throw new ServiceUnavailableException(
+          `Unsupported 3D model format returned by upstream: url=${modelUrl}, contentType=${contentType}`,
+        );
+      }
       const extension = this.inferModelExtension(modelUrl, contentType);
       const safeProjectId = this.sanitizePathSegment(options?.projectId);
       const safeUserId = this.sanitizePathSegment(options?.userId);
@@ -148,30 +206,38 @@ export class Convert2Dto3DService {
     }
   }
 
-  private async submitJob(imageUrl: string): Promise<string> {
+  private async submitJob(params: { imageUrl?: string; prompt?: string }): Promise<string> {
     const payloadCandidates: Array<Record<string, any>> = [
-      // 官方云 API 文档参数：ImageUrl 为字符串
       {
         Model: this.modelVersion,
-        ImageUrl: imageUrl,
+        ...(params.imageUrl ? { ImageUrl: params.imageUrl } : {}),
+        ...(params.prompt ? { Prompt: params.prompt } : {}),
       },
-      // 兼容你提供的接入文档格式：ImageUrl.Url
       {
         Model: this.modelVersion,
-        ImageUrl: {
-          Url: imageUrl,
-        },
+        ...(params.imageUrl
+          ? {
+              ImageUrl: {
+                Url: params.imageUrl,
+              },
+            }
+          : {}),
+        ...(params.prompt ? { Prompt: params.prompt } : {}),
       },
-      // 兜底：部分网关大小写差异
       {
         Model: this.modelVersion,
-        ImageUrl: {
-          url: imageUrl,
-        },
+        ...(params.imageUrl
+          ? {
+              ImageUrl: {
+                url: params.imageUrl,
+              },
+            }
+          : {}),
+        ...(params.prompt ? { Prompt: params.prompt } : {}),
       },
-      // 兜底：不传 Model，让服务端走默认模型
       {
-        ImageUrl: imageUrl,
+        ...(params.imageUrl ? { ImageUrl: params.imageUrl } : {}),
+        ...(params.prompt ? { Prompt: params.prompt } : {}),
       },
     ];
 

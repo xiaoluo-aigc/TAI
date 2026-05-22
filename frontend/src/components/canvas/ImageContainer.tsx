@@ -2552,14 +2552,34 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           }
 
           const modelUrl = convertResult.modelUrl;
+          const resolveSupportedModelFormat = (
+            input: string
+          ): "glb" | "gltf" | null => {
+            const trimmed = input.trim();
+            if (!trimmed) return null;
+            try {
+              const pathname = new URL(trimmed).pathname.toLowerCase();
+              if (pathname.endsWith(".glb")) return "glb";
+              if (pathname.endsWith(".gltf")) return "gltf";
+              return null;
+            } catch {
+              if (/\.glb(?:$|\?)/i.test(trimmed)) return "glb";
+              if (/\.gltf(?:$|\?)/i.test(trimmed)) return "gltf";
+              return null;
+            }
+          };
+          const format = resolveSupportedModelFormat(modelUrl);
+          if (!format) {
+            throw new Error(
+              "2D转3D 已返回模型，但格式不是前端可直接加载的 GLB/GLTF，当前结果无法展示"
+            );
+          }
           const fileName =
             modelUrl.split("/").pop() || `model-${Date.now()}.glb`;
-          const format: "glb" | "gltf" = /\.gltf(?:$|\?)/i.test(modelUrl)
-            ? "gltf"
-            : "glb";
 
           const model3DData: Model3DData = {
             url: modelUrl,
+            path: modelUrl,
             format,
             fileName,
             fileSize: 0,

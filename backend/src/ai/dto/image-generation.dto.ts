@@ -483,9 +483,15 @@ export class MidjourneyModalDto {
 }
 
 export class Convert2Dto3DDto {
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  imageUrl!: string; // OSS鍘熺敓鍙闂殑鍥剧墖URL
+  imageUrl?: string; 
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  prompt?: string;
 
   @IsOptional()
   @IsString()

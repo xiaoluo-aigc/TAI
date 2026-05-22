@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Fixed
+- Windows background removal local fallback now runs in an isolated worker process instead of the Nest main process, so `@imgly/background-removal-node` native crashes no longer take down the backend or wipe frontend session state during “极速抠图”.
+
+### Fixed
+- Fast background removal now follows a single backend provider chain: frontend always posts current image base64 to `/api/public/ai/remove-background`, backend prefers `remove.bg` when `REMOVE_BG_API_KEY` is configured, and otherwise attempts local `@imgly/background-removal-node` even on Windows in best-effort mode instead of hard-disabling local fallback.
+
+### Fixed
+- Background removal diagnostics now align with the actual public API path: frontend availability/info checks use `/api/public/ai/background-removal-info`, and backend info responses include `platform` plus a concrete unavailable `reason` (notably the Windows + missing `REMOVE_BG_API_KEY` case), reducing false suspicion of missing dependencies during “极速抠图” failures.
+
+### Fixed
 - OSS image upload readability checks now call the public asset proxy without credentials and retry briefly after direct PUT upload, preventing `Access-Control-Allow-Origin=*` credential-mode failures from making readable thumbnails look broken.
 - Volc review groups and bio-auth history groups now degrade to in-memory reuse when `volcReviewGroup` / `bioAuthGroup` persistence is unavailable, logging only one warning instead of breaking review/auth flows.
 - Volc asset review and bio-auth API calls now have frontend and backend timeouts, so inaccessible image URLs or slow upstream Volc requests fail back to node state instead of leaving Image buttons spinning indefinitely.
@@ -603,3 +612,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - Removed legacy `expand-image` in-place replacement branch in `DrawingController` quick-upload event handling.
 - Expand results now follow placeholder/new-image insertion path and no longer overwrite the source image node.
+
+## [2D To 3D Format Guard + Refund Fix - 2026-05-22]
+### Changed
+- Backend `convert-2d-to-3d` now rejects explicit unsupported upstream result formats such as `zip/obj/fbx/stl/usdz/ply`, instead of returning a fake-success `modelUrl` that the frontend cannot render.
+- Frontend canvas `2D转3D` flow now validates returned model URLs and only inserts 3D assets when the result is `GLB/GLTF`; unsupported formats surface a clear error instead of a blank 3D container.
+- Credits failure policy for `convert-2d-to-3d` remains unchanged: failures still do not refund automatically.
