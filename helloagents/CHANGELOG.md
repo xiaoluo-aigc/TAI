@@ -618,3 +618,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Backend `convert-2d-to-3d` now rejects explicit unsupported upstream result formats such as `zip/obj/fbx/stl/usdz/ply`, instead of returning a fake-success `modelUrl` that the frontend cannot render.
 - Frontend canvas `2D转3D` flow now validates returned model URLs and only inserts 3D assets when the result is `GLB/GLTF`; unsupported formats surface a clear error instead of a blank 3D container.
 - Credits failure policy for `convert-2d-to-3d` remains unchanged: failures still do not refund automatically.
+
+## [Background Removal Pnpm Resolve Fix - 2026-05-22]
+### Changed
+- Backend background removal service and isolated worker now resolve `@imgly/background-removal-node` via `require.resolve(.../package.json)` first, then derive the real package `dist/resources.json` path.
+- This avoids false negatives on deployment targets using `pnpm`/symlinked `node_modules` layouts where hardcoded `node_modules/@imgly/.../dist` checks can fail even though the package is installed.

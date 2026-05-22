@@ -328,10 +328,34 @@ export class BackgroundRemovalService {
    * 显式传入 publicPath，避免运行目录(cwd)变化导致资源查找失败。
    */
   private resolveLocalModelPublicPath(): string {
+    const resolveFromInstalledPackage = (): string | null => {
+      const packageSpec = '@imgly/background-removal-node/package.json';
+      const lookupPaths = [__dirname, process.cwd()];
+
+      for (const basePath of lookupPaths) {
+        try {
+          // 通过 Node 真实模块解析拿到包目录，兼容 pnpm/软链接布局。
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const packageJsonPath = require.resolve(packageSpec, { paths: [basePath] });
+          const packageDir = path.dirname(packageJsonPath);
+          const distDir = path.join(packageDir, 'dist');
+          const resourcesPath = path.join(distDir, 'resources.json');
+          if (fs.existsSync(resourcesPath)) {
+            return distDir;
+          }
+        } catch {
+          // ignore and continue fallback candidates
+        }
+      }
+
+      return null;
+    };
+
     const candidateDirs = [
+      resolveFromInstalledPackage(),
       path.resolve(__dirname, '../../../node_modules/@imgly/background-removal-node/dist'),
       path.resolve(process.cwd(), 'node_modules/@imgly/background-removal-node/dist'),
-    ];
+    ].filter((value): value is string => typeof value === 'string' && value.length > 0);
 
     for (const dir of candidateDirs) {
       const resourcesPath = path.join(dir, 'resources.json');
