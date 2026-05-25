@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, ServiceUnavailableException } 
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai';
 import { parseToolSelectionJson } from './tool-selection-json.util';
+import { getGeminiApiKey } from './services/gemini-api-key.util';
 
 const DEFAULT_TOOLS = [
   'generateImage',
@@ -46,9 +47,7 @@ export class AiService {
   private readonly genAI: GoogleGenAI | null;
 
   constructor(private readonly config: ConfigService) {
-    const apiKey =
-      this.config.get<string>('GOOGLE_GEMINI_API_KEY') ??
-      this.config.get<string>('VITE_GOOGLE_GEMINI_API_KEY');
+    const apiKey = getGeminiApiKey(this.config);
 
     if (!apiKey) {
       this.logger.warn('Google Gemini API key not configured. AI routes will be unavailable.');

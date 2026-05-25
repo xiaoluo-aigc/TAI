@@ -6,6 +6,19 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 ### Fixed
+- Frontend OpenObserve production logs URL no longer carries a separate `www.tgtai.com` fallback: `frontend/.env` and `frontend/src/utils/openobserve.ts` now only use `VITE_OPENOBSERVE_LOGS_URL_PROD`, matching the current `www.tgtai.com -> tgtai.com` redirect setup.
+
+### Fixed
+- AI file analysis now uses a shared prompt builder for image/PDF inputs across the default Gemini service and `gemini-pro` fallback provider; `/api/ai/analyze-image` docs/types/messages were also aligned to treat `sourceImage/sourceImages` as generic file inputs instead of image-only payloads.
+
+### Fixed
+- Gemini backend key resolution now follows current Google naming for document/image analysis paths: server-side Gemini initialization and PDF/video analysis fallbacks accept `GEMINI_API_KEY` and `GOOGLE_API_KEY`, while keeping legacy `GOOGLE_GEMINI_API_KEY` / `VITE_GOOGLE_GEMINI_API_KEY` as backward-compatible fallbacks.
+
+### Added
+- Backend telemetry now standardizes OpenObserve integration through a dedicated NestJS telemetry module: global request logging, global exception capture, OTLP HTTP tracing, frontend runtime error forwarding, and shared upstream request sanitization all emit trace-correlated payloads to OpenObserve streams.
+- Frontend admin API records now use a shared OpenObserve log-jump utility and button component, so failed business records can open environment-specific `/web/logs` URLs with prefilled stream/query filters instead of relying on a hardcoded test-only console URL.
+
+### Fixed
 - 2D转3D 改为异步任务流：`POST /api/ai/convert-2d-to-3d` 现在只负责创建任务并立即返回 `taskId`，后端在请求外继续执行混元 3D 提交/轮询/持久化，新增 `GET /api/ai/convert-2d-to-3d/task/:taskId` 供前端轮询，避免线上长请求在网关层触发 `504`。
 - Windows background removal local fallback now runs in an isolated worker process instead of the Nest main process, so `@imgly/background-removal-node` native crashes no longer take down the backend or wipe frontend session state during “极速抠图”.
 

@@ -391,13 +391,13 @@ export class AnalyzeImageDto {
   @ValidateIf((o) => !o.sourceImages || o.sourceImages.length === 0)
   @IsString()
   @IsNotEmpty()
-  sourceImage?: string; // base64
+  sourceImage?: string; // image/PDF data URL or base64
 
   @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
-  sourceImages?: string[]; // base64/url array
+  sourceImages?: string[]; // image/PDF data URL or base64 array
 
   @IsOptional()
   @IsString()

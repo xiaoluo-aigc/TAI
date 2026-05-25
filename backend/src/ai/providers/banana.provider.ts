@@ -2558,24 +2558,6 @@ export class BananaProvider implements IAIProvider {
   async analyzeImage(
     request: ImageAnalysisRequest
   ): Promise<AIProviderResponse<AnalysisResult>> {
-    const providerMode = await this.getConfiguredTextProvider(
-      request.providerOptions
-    );
-    const channel: "legacy" | "apimart" | "tencent" =
-      providerMode === "tencent"
-        ? "tencent"
-        : providerMode === "legacy"
-        ? "legacy"
-        : "apimart";
-    this.logger.log(
-      `[Banana/Analyze] userRoute=${
-        this.getUserBananaImageRoute(request.providerOptions) || "normal"
-      } -> channel=${channel}`
-    );
-    this.logger.log(
-      `Analyzing file with Banana API... mode=${providerMode}, channel=${channel}`
-    );
-
     try {
       const sourceInputs = Array.from(
         new Set(
@@ -2603,6 +2585,28 @@ export class BananaProvider implements IAIProvider {
         )
       );
 
+      const hasPdf = normalizedInputs.some(
+        (item) => item.mimeType === "application/pdf"
+      );
+      const providerMode = await this.getConfiguredTextProvider(
+        request.providerOptions
+      );
+      const channel: "legacy" | "apimart" | "tencent" = hasPdf
+        ? "legacy"
+        : providerMode === "tencent"
+        ? "tencent"
+        : providerMode === "legacy"
+        ? "legacy"
+        : "apimart";
+      this.logger.log(
+        `[Banana/Analyze] userRoute=${
+          this.getUserBananaImageRoute(request.providerOptions) || "normal"
+        } -> channel=${channel}${hasPdf ? " (PDF forces legacy inlineData path)" : ""}`
+      );
+      this.logger.log(
+        `Analyzing file with Banana API... mode=${providerMode}, channel=${channel}`
+      );
+
       const modelName = request.model?.trim() || "";
       const isFastModel =
         modelName.includes("2.5") || modelName.includes("gemini-2.5");
@@ -2620,9 +2624,6 @@ export class BananaProvider implements IAIProvider {
         `Analyze request: model=${currentModel}, files=${normalizedInputs.length}, mimeType=${mimeSummary}, mode=${providerMode}`
       );
 
-      const hasPdf = normalizedInputs.some(
-        (item) => item.mimeType === "application/pdf"
-      );
       const hasImage = normalizedInputs.some((item) =>
         item.mimeType.startsWith("image/")
       );

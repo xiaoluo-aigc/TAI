@@ -77,6 +77,7 @@ import {
   fetchTemplateCategories,
 } from "@/services/publicTemplateService";
 import type { PublicTemplate } from "@/services/publicTemplateService";
+import { OpenObserveLogButton } from "@/components/admin/OpenObserveLogButton";
 
 const FULL_ADMIN_ROLE = "admin";
 const NORMAL_ADMIN_ROLE = "normal_admin";
@@ -5735,7 +5736,6 @@ function ApiStatsTab() {
 
 // API 调用记录 Tab
 function ApiRecordsTab() {
-  const OPENOBSERVE_LOGS_URL = "https://test.tanvas.cn/openobserve/web/logs";
   const [records, setRecords] = useState<ApiUsageRecord[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(false);
@@ -5807,47 +5807,6 @@ function ApiRecordsTab() {
     }
 
     return formatExecutionChannelLabel(record.provider);
-  };
-
-  const buildOpenObserveUrl = (stream: string, query: string) => {
-    const encodedQuery = btoa(query);
-    const params = new URLSearchParams({
-      stream_type: "logs",
-      stream,
-      period: "7d",
-      refresh: "0",
-      sql_mode: "false",
-      query: encodedQuery,
-      fn_editor: "false",
-      type: "stream_explorer",
-      defined_schemas: "user_defined_schema",
-      org_identifier: "default",
-      quick_mode: "false",
-      show_histogram: "true",
-      logs_visualize_toggle: "logs",
-    });
-
-    return `${OPENOBSERVE_LOGS_URL}?${params.toString()}`;
-  };
-
-  const buildOpenObserveFailureUrl = (record: ApiUsageRecord) => {
-    const upstreamTaskId =
-      typeof record.requestParams?.taskId === "string" ? record.requestParams.taskId.trim() : "";
-    const userId = typeof record.userId === "string" ? record.userId.trim() : "";
-
-    if (upstreamTaskId) {
-      const queryParts = [`request_body_taskid = '${upstreamTaskId}'`];
-      if (userId) {
-        queryParts.push(`user_id = '${userId}'`);
-      }
-      return buildOpenObserveUrl("upstream_requests", queryParts.join(" and "));
-    }
-
-    return buildOpenObserveUrl("generation_tasks", `metadata_api_usage_id = '${record.id}'`);
-  };
-
-  const openFailureLogs = (record: ApiUsageRecord) => {
-    window.open(buildOpenObserveFailureUrl(record), "_blank", "noopener,noreferrer");
   };
 
   const isRecordObject = (value: unknown): value is Record<string, unknown> =>
@@ -6053,113 +6012,122 @@ function ApiRecordsTab() {
                   const requestThumbnail = getRequestThumbnail(record);
 
                   return (
-                  <tr key={record.id} className='border-t hover:bg-gray-50'>
-                    <td className='px-4 py-3 text-xs text-gray-500'>
-                      {new Date(record.createdAt).toLocaleString()}
-                    </td>
-                    <td className='px-4 py-3'>
-                      <div>{record.user?.name || "-"}</div>
-                      <div className='text-xs text-gray-400'>
-                        {record.user?.phone || record.userId}
-                      </div>
-                      {record.user?.email && (
+                    <tr key={record.id} className='border-t hover:bg-gray-50'>
+                      <td className='px-4 py-3 text-xs text-gray-500'>
+                        {new Date(record.createdAt).toLocaleString()}
+                      </td>
+                      <td className='px-4 py-3'>
+                        <div>{record.user?.name || "-"}</div>
                         <div className='text-xs text-gray-400'>
-                          {record.user.email}
+                          {record.user?.phone || record.userId}
                         </div>
-                      )}
-                      <div className='font-mono text-[10px] text-gray-300'>
-                        {record.userId.slice(0, 8)}
-                      </div>
-                    </td>
-                    <td className='px-4 py-3'>{record.serviceName}</td>
-                    <td className='px-4 py-3'>
-                      <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
-                        {record.provider}
-                      </span>
-                    </td>
-                    <td className='px-4 py-3'>
-                      <span className='px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs'>
-                        {getRecordChannelLabel(record)}
-                      </span>
-                    </td>
-                    <td className='px-4 py-3'>
-                      <div className='flex min-w-[220px] items-center gap-3'>
-                        {requestThumbnail ? (
-                          <img
-                            src={requestThumbnail}
-                            alt='请求缩略图'
-                            className='h-12 w-12 rounded-md border border-gray-200 object-cover'
-                            loading='lazy'
-                          />
+                        {record.user?.email && (
+                          <div className='text-xs text-gray-400'>
+                            {record.user.email}
+                          </div>
+                        )}
+                        <div className='font-mono text-[10px] text-gray-300'>
+                          {record.userId.slice(0, 8)}
+                        </div>
+                      </td>
+                      <td className='px-4 py-3'>{record.serviceName}</td>
+                      <td className='px-4 py-3'>
+                        <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
+                          {record.provider}
+                        </span>
+                      </td>
+                      <td className='px-4 py-3'>
+                        <span className='px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs'>
+                          {getRecordChannelLabel(record)}
+                        </span>
+                      </td>
+                      <td className='px-4 py-3'>
+                        <div className='flex min-w-[220px] items-center gap-3'>
+                          {requestThumbnail ? (
+                            <img
+                              src={requestThumbnail}
+                              alt='请求缩略图'
+                              className='h-12 w-12 rounded-md border border-gray-200 object-cover'
+                              loading='lazy'
+                            />
+                          ) : (
+                            <div className='flex h-12 w-12 items-center justify-center rounded-md border border-dashed border-gray-200 bg-gray-50 text-[10px] text-gray-400'>
+                              无图
+                            </div>
+                          )}
+                          <div className='min-w-0 flex-1'>
+                            <div className='text-xs text-gray-500'>
+                              {requestPrompt ? "提示词已隐藏" : "无提示词"}
+                            </div>
+                            <Button
+                              variant='outline'
+                              size='sm'
+                              className='mt-1 h-7 px-2 text-xs'
+                              onClick={() => setSelectedRequestRecord(record)}
+                            >
+                              查看完整请求
+                            </Button>
+                          </div>
+                        </div>
+                      </td>
+                      <td className='px-4 py-3 text-right font-medium'>
+                        {record.responseStatus === "failed" ? (
+                          <span className='text-green-600'>
+                            已退还 {record.creditsUsed}
+                          </span>
                         ) : (
-                          <div className='flex h-12 w-12 items-center justify-center rounded-md border border-dashed border-gray-200 bg-gray-50 text-[10px] text-gray-400'>
-                            无图
+                          record.creditsUsed
+                        )}
+                      </td>
+                      <td className='px-4 py-3 text-right text-gray-500'>
+                        {record.processingTime
+                          ? `${record.processingTime}ms`
+                          : "-"}
+                      </td>
+                      <td className='px-4 py-3'>
+                        <div className='flex flex-col items-start gap-2'>
+                          <span
+                            className={`px-2 py-1 rounded text-xs ${
+                              statusColors[record.responseStatus] || ""
+                            }`}
+                          >
+                            {record.responseStatus === "success"
+                              ? "成功"
+                              : record.responseStatus === "failed"
+                              ? "失败"
+                              : "处理中"}
+                          </span>
+                          {record.responseStatus === "failed" && (
+                            <OpenObserveLogButton
+                              record={{
+                                id: record.id,
+                                apiUsageId: record.id,
+                                userId: record.userId,
+                                provider: record.provider,
+                                serviceType: record.serviceType,
+                                responseStatus: record.responseStatus,
+                                createdAt: record.createdAt,
+                                requestParams: record.requestParams ?? undefined,
+                                metadata: {
+                                  errorMessage: record.errorMessage,
+                                },
+                              }}
+                              className='h-7 px-2 text-xs'
+                            />
+                          )}
+                        </div>
+                        {record.errorMessage && (
+                          <div
+                            className='text-xs text-red-500 mt-1 max-w-xs truncate'
+                            title={record.errorMessage}
+                          >
+                            {record.errorMessage}
                           </div>
                         )}
-                        <div className='min-w-0 flex-1'>
-                          <div className='text-xs text-gray-500'>
-                            {requestPrompt ? "提示词已隐藏" : "无提示词"}
-                          </div>
-                          <Button
-                            variant='outline'
-                            size='sm'
-                            className='mt-1 h-7 px-2 text-xs'
-                            onClick={() => setSelectedRequestRecord(record)}
-                          >
-                            查看完整请求
-                          </Button>
-                        </div>
-                      </div>
-                    </td>
-                    <td className='px-4 py-3 text-right font-medium'>
-                      {record.responseStatus === "failed" ? (
-                        <span className='text-green-600'>
-                          已退还 {record.creditsUsed}
-                        </span>
-                      ) : (
-                        record.creditsUsed
-                      )}
-                    </td>
-                    <td className='px-4 py-3 text-right text-gray-500'>
-                      {record.processingTime
-                        ? `${record.processingTime}ms`
-                        : "-"}
-                    </td>
-                    <td className='px-4 py-3'>
-                      <div className='flex flex-col items-start gap-2'>
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            statusColors[record.responseStatus] || ""
-                          }`}
-                        >
-                          {record.responseStatus === "success"
-                            ? "成功"
-                            : record.responseStatus === "failed"
-                            ? "失败"
-                            : "处理中"}
-                        </span>
-                        {record.responseStatus === "failed" && (
-                          <Button
-                            variant='outline'
-                            size='sm'
-                            className='h-7 px-2 text-xs'
-                            onClick={() => openFailureLogs(record)}
-                          >
-                            查看原因
-                          </Button>
-                        )}
-                      </div>
-                      {record.errorMessage && (
-                        <div
-                          className='text-xs text-red-500 mt-1 max-w-xs truncate'
-                          title={record.errorMessage}
-                        >
-                          {record.errorMessage}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                )})
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

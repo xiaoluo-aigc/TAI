@@ -3,6 +3,10 @@
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string;
   readonly VITE_APP_VERSION?: string;
+  readonly VITE_APP_ENV?: string;
+  readonly VITE_OPENOBSERVE_LOGS_URL_LOCAL?: string;
+  readonly VITE_OPENOBSERVE_LOGS_URL_TEST?: string;
+  readonly VITE_OPENOBSERVE_LOGS_URL_PROD?: string;
   readonly VITE_STORAGE_SCHEMA_VERSION?: string;
   readonly VITE_RUNTIME_ERROR_REPORTING?: string;
 }

@@ -34,6 +34,12 @@
 - `PaymentPanel`（`frontend/src/components/payment/PaymentPanel.tsx`）核心交互文案已接入 `useLocaleText`（订单状态、筛选、支付提示、二维码状态、手动核对按钮）。
 - 概览与趋势的“消耗”口径为净消耗：按 `spend - refund` 计算（最小值为 0），避免失败后退款仍被算入“今日/近 7 天消耗”。
 
+## 管理后台 OpenObserve 跳转（`/admin`）
+- `frontend/src/utils/openobserve.ts` 提供统一环境判断与 logs URL 构造：优先读取 `VITE_APP_ENV`，其次按 `location.hostname` 推断 `local/test/prod`，并统一输出 `/web/logs?...`。
+- 生产环境 OpenObserve 地址只保留 `VITE_OPENOBSERVE_LOGS_URL_PROD`；`www.tgtai.com` 已依赖站点重定向回主域名 `tgtai.com`，不再维护单独 fallback 变量。
+- `frontend/src/components/admin/OpenObserveLogButton.tsx` 封装了“查看 OpenObserve 日志”按钮；当前已接入管理后台 API 记录失败行，后续其他记录列表可直接复用同一组件。
+- 日志流默认支持 `upstream_requests`、`generation_tasks`、`backend_requests`、`backend_errors`、`backend_events`、`frontend_errors`；失败记录会优先按 `apiUsageId / requestId / traceId / taskId` 组合精确过滤。
+
 ## 双语适配（画布侧）
 - `LayerPanel`（`frontend/src/components/panels/LayerPanel.tsx`）已接入 `useLocaleText`：面板标题、操作 tooltip、上下文菜单、待上传标识与底部统计文案均按语言切换。
 - `LibraryPanel`（`frontend/src/components/panels/LibraryPanel.tsx`）已接入 `useLocaleText`：上传/删除/发送提示、详情面板字段、全局历史筛选和分页文案按语言切换。

@@ -10,6 +10,7 @@ type RuntimeErrorPayload = {
   href: string;
   userAgent: string;
   timestamp: string;
+  traceId: string;
 };
 
 const APP_VERSION = __APP_VERSION__;
@@ -30,6 +31,8 @@ const VERSION_FETCH_TIMEOUT_MS = 6000;
 const MAX_ERROR_REPORTS_PER_PAGE = 20;
 const TELEMETRY_REQUEST_TIMEOUT_MS = 2500;
 const TELEMETRY_CIRCUIT_BREAK_MS = 5 * 60 * 1000;
+const TRACE_HEADER = "x-trace-id";
+const TRACE_PARENT_HEADER = "traceparent";
 
 const LOCAL_STORAGE_KEYS_TO_CLEAR = [
   "canvas-settings",
@@ -58,6 +61,25 @@ const shouldEnableTelemetry = (() => {
   const raw = String(import.meta.env.VITE_ENABLE_TELEMETRY ?? fallback).toLowerCase();
   return ["1", "true", "on", "yes"].includes(raw);
 })();
+
+const randomHex = (size: number): string => {
+  const chars = "0123456789abcdef";
+  let output = "";
+  for (let i = 0; i < size; i += 1) {
+    output += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return output;
+};
+
+const createTraceId = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID().replace(/-/g, "");
+  }
+  return `${Date.now().toString(16)}${randomHex(32)}`.slice(0, 32);
+};
+
+const createTraceParent = (traceId: string, spanId = randomHex(16)): string =>
+  `00-${traceId}-${spanId}-01`;
 
 const seenErrorSignatures = new Set<string>();
 let reportedErrorCount = 0;
@@ -184,10 +206,14 @@ const reportRuntimeError = (
     href: typeof window !== "undefined" ? window.location.href : "unknown",
     userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
     timestamp: new Date().toISOString(),
+    traceId: createTraceId(),
   };
 
   const body = JSON.stringify(payload);
   const endpoint = `${getApiBase()}${FRONTEND_ERROR_ENDPOINT_PATH}`;
+  const headers = new Headers({ "Content-Type": "application/json" });
+  headers.set(TRACE_HEADER, payload.traceId);
+  headers.set(TRACE_PARENT_HEADER, createTraceParent(payload.traceId));
 
   try {
     if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
@@ -204,7 +230,7 @@ const reportRuntimeError = (
 
   fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body,
     credentials: "omit",
     keepalive: true,

@@ -23,8 +23,17 @@
 - `global-image-history`：全局图片历史
 - `templates`：公共模板
 - `health`：健康检查
+- `telemetry`：前端错误上报与观测埋点
 
 > 具体请求/响应以 Swagger 与 Controller 实现为准。
+
+## Telemetry
+- `POST /api/telemetry/frontend-error`
+  - 用途：前端运行时错误上报，后端会转发到 OpenObserve `frontend_errors` stream。
+  - 鉴权：无需登录，可匿名调用。
+  - 建议请求头：`Content-Type: application/json`，并尽量带 `x-trace-id` / `traceparent`。
+  - 请求体字段：`kind`、`message`、`stack`、`source`、`appVersion`、`buildTime`、`href`、`userAgent`、`timestamp`、`traceId`
+  - 响应：`204 No Content`
 
 ## 近期接口变更（摘要）
 - `POST /api/ai/convert-2d-to-3d`：
@@ -33,4 +42,5 @@
 - `POST /api/ai/analyze-image`：
   - 新增可选 `sourceImages: string[]`，支持多图分析。
   - 兼容原有 `sourceImage: string` 单图请求。
+  - `sourceImage/sourceImages` 同时支持图片与 PDF 的 `data:` URL 或纯 base64；后端会按 MIME 统一转为模型可消费的 inline file parts。
   - 两者同时传入时会合并去重后统一参与分析。

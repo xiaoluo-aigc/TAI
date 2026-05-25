@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai';
+import { getGeminiApiKey } from './services/gemini-api-key.util';
+import { buildAnalysisPrompt } from './utils/analysis-prompt.util';
 
 export interface ImageGenerationResult {
   imageData?: string;
@@ -127,10 +129,7 @@ export class ImageGenerationService {
   private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
 
   constructor(private readonly config: ConfigService) {
-    this.defaultApiKey =
-      this.config.get<string>('GOOGLE_GEMINI_API_KEY') ??
-      this.config.get<string>('VITE_GOOGLE_GEMINI_API_KEY') ??
-      null;
+    this.defaultApiKey = getGeminiApiKey(this.config);
 
     if (!this.defaultApiKey) {
       this.logger.warn('Google Gemini API key not configured. Image generation will be unavailable.');
@@ -964,7 +963,7 @@ export class ImageGenerationService {
       ),
     );
     if (!sourceInputs.length) {
-      throw new BadRequestException('Image analysis requires at least one source image');
+      throw new BadRequestException('File analysis requires at least one source file');
     }
 
     this.logger.log(
@@ -982,33 +981,10 @@ export class ImageGenerationService {
     const client = this.getClient(request.customApiKey);
     const model = request.model || 'gemini-3-flash-preview';
 
-    // 根据文件类型生成不同的提示词
-    const hasPdf = normalizedInputs.some((item) => item.mimeType === 'application/pdf');
-    const hasImage = normalizedInputs.some((item) => item.mimeType.startsWith('image/'));
-    const fileTypeDesc =
-      normalizedInputs.length > 1 ? 'files' : hasPdf && !hasImage ? 'PDF document' : 'image';
-
-    const analysisPrompt = request.prompt
-      ? `Please analyze the following ${fileTypeDesc} (respond in Chinese):\n\n${request.prompt}`
-      : normalizedInputs.length > 1
-        ? `Please analyze these files in detail (respond in Chinese):
-1. Main subject and key differences between files
-2. Core objects, scenes, and notable details per file
-3. Overall style, composition, and quality observations
-4. Useful summary for downstream prompt writing`
-      : hasPdf && !hasImage
-        ? `Please analyze this PDF document in detail (respond in Chinese):
-1. Document type and purpose
-2. Main content summary
-3. Key information and data
-4. Structure and organization
-5. Notable details`
-        : `Please analyze this image in detail (respond in Chinese):
-1. Main content and theme
-2. Objects, people, scenes
-3. Color and composition
-4. Style and quality
-5. Notable details`;
+    const analysisPrompt = buildAnalysisPrompt(
+      request.prompt,
+      normalizedInputs,
+    );
 
     const startTime = Date.now();
 

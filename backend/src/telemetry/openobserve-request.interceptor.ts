@@ -11,6 +11,10 @@ import crypto from 'crypto';
 import { OpenObserveTelemetryService } from './openobserve-telemetry.service';
 import { getActiveSpanContext } from './tracing';
 import { enterRequestContext } from './request-context';
+import {
+  extractTraceIdFromTraceparent,
+  resolveFastifyRoutePath,
+} from './openobserve-log.util';
 
 type AuthLikeUser = {
   id?: string;
@@ -61,18 +65,24 @@ export class OpenObserveRequestInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest<TraceableRequest>();
     const reply = context.switchToHttp().getResponse<FastifyReply>();
     const startTime = Date.now();
-    const path = request.url || request.routerPath || '';
+    const path = request.url || resolveFastifyRoutePath(request) || '';
+    const route = resolveFastifyRoutePath(request);
     const activeSpanContext = getActiveSpanContext();
     const headerTraceId = typeof request.headers['x-trace-id'] === 'string'
       ? request.headers['x-trace-id'].trim()
       : '';
+    const traceparentTraceId = extractTraceIdFromTraceparent(request.headers.traceparent);
     const traceId =
       activeSpanContext?.traceId ||
       headerTraceId ||
+      traceparentTraceId ||
       request.traceId ||
       crypto.randomUUID().replace(/-/g, '');
     request.traceId = traceId;
     reply.header('x-trace-id', traceId);
+    if (request.id) {
+      reply.header('x-request-id', request.id);
+    }
     const originHeader = toOriginInfo(request.headers.origin);
     const refererHeader = toOriginInfo(request.headers.referer || request.headers.referrer);
     const requestOrigin = originHeader.origin || refererHeader.origin;
@@ -83,14 +93,14 @@ export class OpenObserveRequestInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-const emit = (statusCode: number) => {
+    const emit = (statusCode: number) => {
       const user = request.user;
       const userId = user?.id || user?.userId || user?.sub || null;
       void this.openObserveTelemetryService.ingestBackendRequest({
         traceId,
         method: request.method,
         path,
-        route: request.routerPath || null,
+        route,
         statusCode,
         durationMs: Date.now() - startTime,
         ip: request.ip || null,

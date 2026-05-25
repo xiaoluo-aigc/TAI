@@ -1,7 +1,13 @@
 import { context, trace } from '@opentelemetry/api';
 import { Logger } from '@nestjs/common';
 import { getRequestContext, recordLatestUpstreamRequest } from './request-context';
-import { buildOpenObserveApiPrefix, buildOpenObserveIngestEndpoint } from './openobserve-url';
+import { buildOpenObserveApiPrefix } from './openobserve-url';
+import { sendOpenObserveJsonIngest } from './openobserve-ingest.util';
+import {
+  isEnabledFlag,
+  sanitizeHeadersForTelemetry,
+  sanitizeTelemetryValue,
+} from './openobserve-log.util';
 
 type PatchedFetch = typeof fetch & {
   __tanvaUpstreamLoggingPatched?: boolean;
@@ -11,13 +17,8 @@ type UpstreamRequestType = 'text' | 'video' | 'picture' | 'audio' | 'file' | 'bi
 
 const logger = new Logger('UpstreamFetchLogger');
 
-const isEnabled = (value: unknown, defaultValue: boolean): boolean => {
-  if (value == null || value === '') return defaultValue;
-  return ['1', 'true', 'on', 'yes'].includes(String(value).toLowerCase());
-};
-
 const shouldLogUpstreamRequests = (): boolean => {
-  return isEnabled(process.env.OPENOBSERVE_UPSTREAM_REQUEST_LOGGING_ENABLED, true);
+  return isEnabledFlag(process.env.OPENOBSERVE_UPSTREAM_REQUEST_LOGGING_ENABLED, true);
 };
 
 const getOpenObserveEndpointPrefix = (): string | null => {
@@ -27,61 +28,7 @@ const getOpenObserveEndpointPrefix = (): string | null => {
   return buildOpenObserveApiPrefix(baseUrl, org);
 };
 
-// 触发 base64 裁剪的最小长度：image 即使是缩略图通常也 ≥ 1KB
-// 低于此阈值的 base64 字符串视为正常 token（不裁剪）。
-const BASE64_REDACT_THRESHOLD = 1024;
-
-// 识别需要裁剪的 base64 内容：
-//   - 任意 data:<media>/...;base64,... URL
-//   - 长度 ≥ 阈值且字符集像 base64（容忍 url-safe 变体和换行）
-const matchBase64DataUrl = (value: string): RegExpMatchArray | null =>
-  value.trim().match(/^data:([\w.+-]+\/[\w.+-]+);base64,(.*)$/i);
-
-const isPureLargeBase64 = (value: string): boolean => {
-  const trimmed = value.trim();
-  if (trimmed.length < BASE64_REDACT_THRESHOLD) return false;
-  return /^[A-Za-z0-9+/=_\-\s]+$/.test(trimmed);
-};
-
-const redactBase64String = (value: string): unknown => {
-  const dataUrlMatch = matchBase64DataUrl(value);
-  const base64Payload = dataUrlMatch
-    ? dataUrlMatch[2]
-    : value.trim().replace(/\s+/g, '');
-  const mimeType = dataUrlMatch?.[1] || 'application/base64';
-  const approxBytes = Math.floor((base64Payload.length * 3) / 4);
-
-  return {
-    kind: 'redacted_base64',
-    mimeType,
-    encoding: 'base64',
-    approximateBytes: approxBytes,
-    base64Length: base64Payload.length,
-  };
-};
-
-const sanitizeString = (value: string): unknown => {
-  if (matchBase64DataUrl(value) || isPureLargeBase64(value)) {
-    return redactBase64String(value);
-  }
-  return value;
-};
-
 const sanitizeValue = (value: unknown): unknown => {
-  if (value == null) return value;
-
-  if (typeof value === 'string') {
-    return sanitizeString(value);
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeValue(item));
-  }
-
-  if (value instanceof URLSearchParams) {
-    return sanitizeValue(Object.fromEntries(value.entries()));
-  }
-
   if (typeof FormData !== 'undefined' && value instanceof FormData) {
     const entries: Record<string, unknown[]> = {};
     for (const [key, entryValue] of value.entries()) {
@@ -100,25 +47,7 @@ const sanitizeValue = (value: unknown): unknown => {
     return entries;
   }
 
-  if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
-    const byteLength =
-      value instanceof Uint8Array ? value.byteLength : value.byteLength;
-    return {
-      kind: 'binary_payload',
-      byteLength,
-    };
-  }
-
-  if (typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
-        key,
-        sanitizeValue(nestedValue),
-      ]),
-    );
-  }
-
-  return value;
+  return sanitizeTelemetryValue(value);
 };
 
 const normalizeHeaders = (headers: Headers): Record<string, unknown> => {
@@ -127,28 +56,6 @@ const normalizeHeaders = (headers: Headers): Record<string, unknown> => {
     normalized[key] = value;
   });
   return normalized;
-};
-
-const SENSITIVE_HEADER_NAMES = new Set([
-  'authorization',
-  'cookie',
-  'proxy-authorization',
-  'set-cookie',
-  'x-api-key',
-  'api-key',
-  'apikey',
-]);
-
-const sanitizeHeaders = (
-  headers: Record<string, unknown> | null | undefined,
-): Record<string, unknown> | null => {
-  if (!headers) return null;
-  return Object.fromEntries(
-    Object.entries(headers).map(([key, value]) => [
-      key,
-      SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? '[redacted]' : value,
-    ]),
-  );
 };
 
 const getMimeType = (contentType: string | null | undefined): string | null => {
@@ -540,37 +447,19 @@ const shouldLogUrl = (url: URL): boolean => {
 };
 
 const ingestUpstreamRequestLog = async (payload: Record<string, unknown>) => {
-  const baseUrl = process.env.OPENOBSERVE_BASE_URL?.trim();
-  const username = process.env.OPENOBSERVE_USERNAME?.trim();
-  const password = process.env.OPENOBSERVE_PASSWORD?.trim();
-  const org = process.env.OPENOBSERVE_ORG?.trim() || 'default';
   const stream = process.env.OPENOBSERVE_UPSTREAM_REQUEST_STREAM?.trim() || 'upstream_requests';
-  if (!baseUrl || !username || !password) return;
-
-  const endpoint = buildOpenObserveIngestEndpoint(baseUrl, org, stream);
-  const auth = Buffer.from(`${username}:${password}`).toString('base64');
   const originalFetch = globalThis.fetch.bind(globalThis);
 
-  try {
-    const response = await originalFetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Basic ${auth}`,
-      },
-      body: JSON.stringify([payload]),
-    });
-
-    if (!response.ok) {
-      logger.warn(
-        `OpenObserve upstream ingest failed: ${response.status} ${response.statusText}, endpoint=${endpoint}`,
-      );
-    }
-  } catch (error) {
-    logger.warn(
-      `OpenObserve upstream ingest skipped: ${error instanceof Error ? error.message : String(error)}, endpoint=${endpoint}`,
-    );
-  }
+  await sendOpenObserveJsonIngest({
+    baseUrl: process.env.OPENOBSERVE_BASE_URL,
+    username: process.env.OPENOBSERVE_USERNAME,
+    password: process.env.OPENOBSERVE_PASSWORD,
+    org: process.env.OPENOBSERVE_ORG,
+    stream,
+    payload,
+    logger,
+    fetchImpl: originalFetch,
+  });
 };
 
 export const installUpstreamFetchLogger = (): void => {
@@ -607,8 +496,8 @@ export const installUpstreamFetchLogger = (): void => {
       const response = await originalFetch(request);
       const responseHeaders = normalizeHeaders(response.headers);
       const responseBody = await readResponseBody(response);
-      const sanitizedRequestHeaders = sanitizeHeaders(requestHeaders);
-      const sanitizedResponseHeaders = sanitizeHeaders(responseHeaders);
+      const sanitizedRequestHeaders = sanitizeHeadersForTelemetry(requestHeaders);
+      const sanitizedResponseHeaders = sanitizeHeadersForTelemetry(responseHeaders);
       const sanitizedRequestBody = sanitizeValue(requestBody);
       const sanitizedResponseBody = sanitizeValue(responseBody);
       const requestType = inferUpstreamRequestType({
@@ -637,7 +526,7 @@ export const installUpstreamFetchLogger = (): void => {
         response_body: sanitizedResponseBody,
         type: requestType,
         model: resolveUpstreamModel(url, requestBody),
-        service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
+        service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'my-backend',
         received_at: new Date().toISOString(),
         log_type: 'upstream_request',
         service: 'backend',
@@ -665,7 +554,7 @@ export const installUpstreamFetchLogger = (): void => {
         requestHeaders,
         requestBody,
       });
-      const sanitizedRequestHeaders = sanitizeHeaders(requestHeaders);
+      const sanitizedRequestHeaders = sanitizeHeadersForTelemetry(requestHeaders);
       const sanitizedRequestBody = sanitizeValue(requestBody);
       const upstreamPayload = {
         trace_id: activeSpan?.traceId || requestContext?.traceId || null,
@@ -686,7 +575,7 @@ export const installUpstreamFetchLogger = (): void => {
         type: requestType,
         model: resolveUpstreamModel(url, requestBody),
         error: error instanceof Error ? error.message : String(error),
-        service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
+        service_name: process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'my-backend',
         received_at: new Date().toISOString(),
         log_type: 'upstream_request',
         service: 'backend',

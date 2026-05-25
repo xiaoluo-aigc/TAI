@@ -4,6 +4,7 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { buildOpenObserveTraceEndpoint } from './openobserve-url';
+import { isEnabledFlag } from './openobserve-log.util';
 
 export type PersistedTraceContext = {
   traceId?: string | null;
@@ -17,11 +18,6 @@ let started = false;
 
 const TRACE_ID_PATTERN = /^[0-9a-f]{32}$/;
 const SPAN_ID_PATTERN = /^[0-9a-f]{16}$/;
-
-const isEnabled = (value: unknown, defaultValue: boolean): boolean => {
-  if (value == null || value === '') return defaultValue;
-  return ['1', 'true', 'on', 'yes'].includes(String(value).toLowerCase());
-};
 
 const buildTraceEndpoint = (): string | null => {
   const explicit = process.env.OPENOBSERVE_TRACE_OTLP_ENDPOINT?.trim();
@@ -50,20 +46,20 @@ export const initOpenTelemetry = (): void => {
 
   const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
   const defaultEnabled = true;
-  const enabled = isEnabled(process.env.OPENOBSERVE_TRACING_ENABLED, defaultEnabled);
+  const enabled = isEnabledFlag(process.env.OPENOBSERVE_TRACING_ENABLED, defaultEnabled);
   if (!enabled) return;
 
   const endpoint = buildTraceEndpoint();
   const headers = getExporterHeaders();
   if (!endpoint || !headers) return;
 
-  if (isEnabled(process.env.OPENOBSERVE_TRACE_DEBUG, false)) {
+  if (isEnabledFlag(process.env.OPENOBSERVE_TRACE_DEBUG, false)) {
     diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
   }
 
   sdk = new NodeSDK({
     resource: resourceFromAttributes({
-      'service.name': process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'tanva-backend',
+      'service.name': process.env.OPENOBSERVE_TRACE_SERVICE_NAME?.trim() || 'my-backend',
       'service.version': process.env.npm_package_version || '0.1.0',
       'deployment.environment': nodeEnv || 'development',
     }),

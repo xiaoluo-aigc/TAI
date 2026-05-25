@@ -2,7 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getActiveSpanContext } from './tracing';
 import { getRequestContext } from './request-context';
-import { buildOpenObserveIngestEndpoint } from './openobserve-url';
+import { sendOpenObserveJsonIngest } from './openobserve-ingest.util';
+import {
+  isEnabledFlag,
+  normalizeKeysForOpenObserve,
+  sanitizeHeadersForTelemetry,
+  sanitizeSpanId,
+  sanitizeTelemetryValue,
+  sanitizeTraceId,
+} from './openobserve-log.util';
 
 type FrontendErrorLog = {
   kind: string;
@@ -15,6 +23,9 @@ type FrontendErrorLog = {
   userAgent: string;
   timestamp: string | null;
   ip: string | null;
+  traceId?: string | null;
+  requestId?: string | null;
+  userId?: string | null;
   receivedAt: string;
 };
 
@@ -115,79 +126,7 @@ type UpstreamRequestLog = {
   receivedAt: string;
 };
 
-const isEnabled = (value: unknown, defaultValue: boolean): boolean => {
-  if (value == null || value === '') return defaultValue;
-  return ['1', 'true', 'on', 'yes'].includes(String(value).toLowerCase());
-};
-
-const toSnakeCase = (value: string): string =>
-  value
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/([A-Z]+)([A-Z][a-z0-9]+)/g, '$1_$2')
-    .replace(/[\s-]+/g, '_')
-    .toLowerCase();
-
-const normalizeKeysForOpenObserve = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeKeysForOpenObserve(item));
-  }
-
-  if (!value || typeof value !== 'object') {
-    return value;
-  }
-
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
-      toSnakeCase(key),
-      normalizeKeysForOpenObserve(nestedValue),
-    ]),
-  );
-};
-
 const DEFAULT_BACKEND_REQUEST_BODY_MAX_LENGTH = 4096;
-
-const truncateStringValue = (value: string, maxLength: number): string => {
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  const omittedLength = value.length - maxLength;
-  return `${value.slice(0, maxLength)}...[truncated ${omittedLength} chars]`;
-};
-
-const summarizeBodyForLog = (body: unknown, maxLength: number): unknown => {
-  if (body == null) {
-    return body;
-  }
-
-  if (typeof body === 'string') {
-    return truncateStringValue(body, maxLength);
-  }
-
-  try {
-    const serialized = JSON.stringify(body);
-    if (typeof serialized !== 'string') {
-      return body;
-    }
-
-    if (serialized.length <= maxLength) {
-      return body;
-    }
-
-    return {
-      truncated: true,
-      originalType: Array.isArray(body) ? 'array' : typeof body,
-      originalLength: serialized.length,
-      preview: truncateStringValue(serialized, maxLength),
-    };
-  } catch {
-    return {
-      truncated: true,
-      originalType: Array.isArray(body) ? 'array' : typeof body,
-      preview: '[unserializable body]',
-    };
-  }
-};
 
 @Injectable()
 export class OpenObserveTelemetryService {
@@ -199,7 +138,13 @@ export class OpenObserveTelemetryService {
     await this.ingest(
       this.configService.get<string>('OPENOBSERVE_FRONTEND_ERROR_STREAM')?.trim() || 'frontend_errors',
       {
-        ...log,
+        ...this.attachContext(log),
+        kind: sanitizeTelemetryValue(log.kind),
+        message: sanitizeTelemetryValue(log.message, { maxStringLength: 2000 }),
+        stack: sanitizeTelemetryValue(log.stack, { maxStringLength: 8000 }),
+        source: sanitizeTelemetryValue(log.source),
+        href: sanitizeTelemetryValue(log.href),
+        userAgent: sanitizeTelemetryValue(log.userAgent),
         service: 'frontend',
         log_type: 'frontend_error',
       },
@@ -211,8 +156,10 @@ export class OpenObserveTelemetryService {
     await this.ingest(
       this.configService.get<string>('OPENOBSERVE_BACKEND_REQUEST_STREAM')?.trim() || 'backend_requests',
       {
-        ...log,
-        body: summarizeBodyForLog(log.body, maxBodyLength),
+        ...this.attachContext(log),
+        headers: sanitizeHeadersForTelemetry(log.headers),
+        query: sanitizeTelemetryValue(log.query, { maxStringLength: maxBodyLength }),
+        body: sanitizeTelemetryValue(log.body, { maxStringLength: maxBodyLength }),
         service: 'backend',
         log_type: 'backend_request',
       },
@@ -224,10 +171,8 @@ export class OpenObserveTelemetryService {
     await this.ingest(
       this.configService.get<string>('OPENOBSERVE_BACKEND_EVENT_STREAM')?.trim() || 'backend_events',
       {
-        ...log,
-        traceId: log.traceId || getActiveSpanContext()?.traceId || requestContext?.traceId || null,
-        requestId: log.requestId || requestContext?.requestId || null,
-        userId: log.userId || requestContext?.userId || null,
+        ...this.attachContext(log, requestContext),
+        payload: sanitizeTelemetryValue(log.payload, { maxStringLength: this.getBackendRequestBodyMaxLength() }),
         service: 'backend',
         log_type: 'backend_event',
       },
@@ -241,25 +186,26 @@ export class OpenObserveTelemetryService {
     await this.ingest(
       this.configService.get<string>('OPENOBSERVE_BACKEND_ERROR_STREAM')?.trim() || 'backend_errors',
       {
-        ...log,
-        traceId: log.traceId || getActiveSpanContext()?.traceId || requestContext?.traceId || null,
-        requestId: log.requestId || requestContext?.requestId || null,
-        userId: log.userId || requestContext?.userId || null,
-        body: summarizeBodyForLog(log.body, maxBodyLength),
-        response: summarizeBodyForLog(log.response, maxBodyLength),
-        upstream: summarizeBodyForLog(upstream, maxBodyLength),
+        ...this.attachContext(log, requestContext),
+        headers: sanitizeHeadersForTelemetry(log.headers),
+        query: sanitizeTelemetryValue(log.query, { maxStringLength: maxBodyLength }),
+        params: sanitizeTelemetryValue(log.params, { maxStringLength: maxBodyLength }),
+        body: sanitizeTelemetryValue(log.body, { maxStringLength: maxBodyLength }),
+        response: sanitizeTelemetryValue(log.response, { maxStringLength: maxBodyLength }),
+        payload: sanitizeTelemetryValue(log.payload, { maxStringLength: maxBodyLength }),
+        upstream: sanitizeTelemetryValue(upstream, { maxStringLength: maxBodyLength }),
         upstreamUrl: log.upstreamUrl ?? upstream?.url ?? null,
         upstreamHost: log.upstreamHost ?? upstream?.host ?? null,
         upstreamPathname: log.upstreamPathname ?? upstream?.pathname ?? null,
         upstreamStatusCode: log.upstreamStatusCode ?? upstream?.statusCode ?? null,
         upstreamError: log.upstreamError ?? upstream?.error ?? null,
-        upstreamPayload: summarizeBodyForLog(
+        upstreamPayload: sanitizeTelemetryValue(
           log.upstreamPayload ?? upstream?.requestBody ?? null,
-          maxBodyLength,
+          { maxStringLength: maxBodyLength },
         ),
-        upstreamResponse: summarizeBodyForLog(
+        upstreamResponse: sanitizeTelemetryValue(
           log.upstreamResponse ?? upstream?.responseBody ?? null,
-          maxBodyLength,
+          { maxStringLength: maxBodyLength },
         ),
         service: 'backend',
         log_type: 'backend_error',
@@ -273,9 +219,10 @@ export class OpenObserveTelemetryService {
     await this.ingest(
       this.configService.get<string>('OPENOBSERVE_GENERATION_TASK_STREAM')?.trim() || 'generation_tasks',
       {
-        ...log,
-        requestId: log.requestId || requestContext?.requestId || null,
-        userId: log.userId || requestContext?.userId || null,
+        ...this.attachContext(log, requestContext),
+        metadata: sanitizeTelemetryValue(log.metadata, { maxStringLength: this.getBackendRequestBodyMaxLength() }),
+        prompt: sanitizeTelemetryValue(log.prompt, { maxStringLength: this.getBackendRequestBodyMaxLength() }),
+        error: sanitizeTelemetryValue(log.error),
         isError,
         failureStage: isError ? log.stage : null,
         failureReason: isError ? log.error || log.status : null,
@@ -290,7 +237,16 @@ export class OpenObserveTelemetryService {
     await this.ingest(
       this.configService.get<string>('OPENOBSERVE_UPSTREAM_REQUEST_STREAM')?.trim() || 'upstream_requests',
       {
-        ...log,
+        ...this.attachContext(log),
+        requestHeaders: sanitizeHeadersForTelemetry(log.requestHeaders),
+        responseHeaders: sanitizeHeadersForTelemetry(log.responseHeaders),
+        requestBody: sanitizeTelemetryValue(log.requestBody, {
+          maxStringLength: this.getBackendRequestBodyMaxLength(),
+        }),
+        responseBody: sanitizeTelemetryValue(log.responseBody, {
+          maxStringLength: this.getBackendRequestBodyMaxLength(),
+        }),
+        error: sanitizeTelemetryValue(log.error),
         isError,
         failureStage: isError ? 'upstream_request' : null,
         failureReason: log.error || (isError ? `HTTP_${log.statusCode}` : null),
@@ -303,54 +259,21 @@ export class OpenObserveTelemetryService {
   private async ingest(stream: string, payload: Record<string, unknown>): Promise<void> {
     if (!this.shouldSend()) return;
 
-    const baseUrl = this.configService.get<string>('OPENOBSERVE_BASE_URL')?.trim();
-    const username = this.configService.get<string>('OPENOBSERVE_USERNAME')?.trim();
-    const password = this.configService.get<string>('OPENOBSERVE_PASSWORD')?.trim();
-    const org = this.configService.get<string>('OPENOBSERVE_ORG')?.trim() || 'default';
+    const normalizedPayload = normalizeKeysForOpenObserve(this.attachContext(payload));
 
-    if (!baseUrl || !username || !password) {
-      return;
-    }
-
-    const endpoint = buildOpenObserveIngestEndpoint(baseUrl, org, stream);
-    const auth = Buffer.from(`${username}:${password}`).toString('base64');
-
-    try {
-      const activeSpanContext = getActiveSpanContext();
-      const normalizedPayload = normalizeKeysForOpenObserve({
-        ...payload,
-        traceId:
-          (typeof payload.traceId === 'string' && payload.traceId.trim()) ||
-          activeSpanContext?.traceId ||
-          null,
-        spanId:
-          (typeof payload.spanId === 'string' && payload.spanId.trim()) ||
-          activeSpanContext?.spanId ||
-          null,
-      });
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Basic ${auth}`,
-        },
-        body: JSON.stringify([
-          normalizedPayload,
-        ]),
-      });
-
-      if (!response.ok) {
-        this.logger.warn(`OpenObserve ingest failed: ${response.status} ${response.statusText}`);
-      }
-    } catch (error) {
-      this.logger.warn(
-        `OpenObserve ingest skipped: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
+    await sendOpenObserveJsonIngest({
+      baseUrl: this.configService.get<string>('OPENOBSERVE_BASE_URL'),
+      username: this.configService.get<string>('OPENOBSERVE_USERNAME'),
+      password: this.configService.get<string>('OPENOBSERVE_PASSWORD'),
+      org: this.configService.get<string>('OPENOBSERVE_ORG'),
+      stream,
+      payload: normalizedPayload as Record<string, unknown>,
+      logger: this.logger,
+    });
   }
 
   private shouldSend(): boolean {
-    return isEnabled(this.configService.get('OPENOBSERVE_TELEMETRY_ENABLED'), true);
+    return isEnabledFlag(this.configService.get('OPENOBSERVE_TELEMETRY_ENABLED'), true);
   }
 
   private getBackendRequestBodyMaxLength(): number {
@@ -359,5 +282,33 @@ export class OpenObserveTelemetryService {
       return DEFAULT_BACKEND_REQUEST_BODY_MAX_LENGTH;
     }
     return Math.floor(raw);
+  }
+
+  private attachContext(
+    payload: Record<string, unknown>,
+    requestContext = getRequestContext(),
+  ): Record<string, unknown> {
+    const activeSpanContext = getActiveSpanContext();
+
+    return {
+      ...payload,
+      traceId:
+        sanitizeTraceId(payload.traceId) ||
+        activeSpanContext?.traceId ||
+        requestContext?.traceId ||
+        null,
+      spanId:
+        sanitizeSpanId(payload.spanId) ||
+        activeSpanContext?.spanId ||
+        null,
+      requestId:
+        (typeof payload.requestId === 'string' && payload.requestId.trim()) ||
+        requestContext?.requestId ||
+        null,
+      userId:
+        (typeof payload.userId === 'string' && payload.userId.trim()) ||
+        requestContext?.userId ||
+        null,
+    };
   }
 }

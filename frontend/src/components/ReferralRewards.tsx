@@ -107,6 +107,8 @@ export default function ReferralRewards() {
     });
   };
 
+  const displayInviteCode = stats?.inviteCode?.replace(/^(TANVAAS|TANVAS)-/i, "TAI-") || "TAI-XXXX";
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -228,7 +230,7 @@ export default function ReferralRewards() {
           </div>
           <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
             <span className="flex-1 text-xl font-bold text-gray-900">
-              {stats?.inviteCode || "TANVAS-XXXX"}
+              {displayInviteCode}
             </span>
             <Button
               size="sm"

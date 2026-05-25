@@ -9,6 +9,7 @@ import {
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { getActiveSpanContext } from './tracing';
 import { OpenObserveTelemetryService } from './openobserve-telemetry.service';
+import { resolveFastifyRoutePath } from './openobserve-log.util';
 
 type AuthLikeUser = {
   id?: string;
@@ -52,6 +53,7 @@ export class OpenObserveExceptionFilter implements ExceptionFilter {
     const user = request.user;
     const userId = user?.id || user?.userId || user?.sub || null;
     const traceId = request.traceId || getActiveSpanContext()?.traceId || null;
+    const route = resolveFastifyRoutePath(request);
 
     const isHttpException = exception instanceof HttpException;
     const statusCode = isHttpException
@@ -79,7 +81,7 @@ export class OpenObserveExceptionFilter implements ExceptionFilter {
       statusCode,
       method: request.method || null,
       path: request.url || null,
-      route: request.routerPath || null,
+      route,
       ip: request.ip || null,
       userAgent:
         typeof request.headers['user-agent'] === 'string'

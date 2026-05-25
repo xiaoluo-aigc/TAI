@@ -24,6 +24,7 @@ import { AIProviderFactory } from './ai-provider.factory';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { ToolSelectionRequestDto } from './dto/tool-selection.dto';
 import { RemoveBackgroundDto } from './dto/background-removal.dto';
+import { getGeminiApiKeyFromEnv } from './services/gemini-api-key.util';
 import {
   GenerateImageDto,
   EditImageDto,
@@ -1609,6 +1610,133 @@ export class AiController {
     return this.providerDefaultAnalyzeModels.gemini;
   }
 
+  private isPdfLikeInput(value: string): boolean {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return false;
+    }
+
+    if (/^data:application\/pdf(?:;base64)?,/i.test(trimmed)) {
+      return true;
+    }
+
+    const compact = trimmed.replace(/\s+/g, '');
+    return compact.startsWith('JVBERi');
+  }
+
+  private isPdfAnalyzeProviderUnsafe(providerName?: string | null): boolean {
+    if (!providerName) {
+      return false;
+    }
+
+    const normalized = providerName.trim().toLowerCase();
+    return (
+      normalized !== 'gemini' &&
+      normalized !== 'gemini-pro' &&
+      normalized !== 'banana' &&
+      normalized !== 'banana-2.5' &&
+      normalized !== 'banana-3.1'
+    );
+  }
+
+  private resolveGeminiPdfAnalyzeModel(requestedModel?: string): string {
+    const trimmed = requestedModel?.trim();
+    if (trimmed?.length && /^gemini-/i.test(trimmed) && !/image-preview/i.test(trimmed)) {
+      return trimmed;
+    }
+    return 'gemini-3-flash-preview';
+  }
+
+  private isUpstreamAuthError(error: any): boolean {
+    const status = this.extractHttpStatusFromError(error);
+    if (status === 401 || status === 403) {
+      return true;
+    }
+
+    const message = this.summarizeError(error).toLowerCase();
+    return (
+      message.includes('permission_denied') ||
+      message.includes('api key') ||
+      message.includes('forbidden') ||
+      message.includes('unauthorized')
+    );
+  }
+
+  private isLeakedApiKeyError(error: any): boolean {
+    const message = this.summarizeError(error).toLowerCase();
+    const mentionsGeminiKey =
+      message.includes('gemini') ||
+      message.includes('google api key') ||
+      message.includes('gemini api key') ||
+      message.includes('api key');
+    return (
+      mentionsGeminiKey &&
+      (message.includes('reported as leaked') || message.includes('leaked'))
+    );
+  }
+
+  private async analyzeViaGeminiWithPdfFallback(
+    dto: AnalyzeImageDto,
+    sourceImage: string,
+    sourceImages: string[],
+    model: string,
+    customApiKey: string | null,
+    hasPdf: boolean,
+  ): Promise<{ text: string }> {
+    try {
+      const result = await this.imageGeneration.analyzeImage({
+        ...dto,
+        sourceImage,
+        sourceImages,
+        model,
+        customApiKey,
+      });
+      const text = typeof result?.text === 'string' ? result.text.trim() : '';
+      if (!text) {
+        throw new ServiceUnavailableException(
+          'Analysis returned empty response, please try again later',
+        );
+      }
+      return { text };
+    } catch (error) {
+      if (!hasPdf) {
+        throw error;
+      }
+
+      if (this.isUpstreamAuthError(error)) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `Gemini analyze service failed for PDF input, falling back to GeminiProProvider analyzeImage: ${this.summarizeError(error)}`,
+      );
+
+      const geminiProvider = this.factory.getProvider(model, 'gemini-pro');
+      const fallbackResult = await geminiProvider.analyzeImage({
+        prompt: dto.prompt,
+        sourceImage,
+        sourceImages,
+        model,
+        providerOptions: dto.providerOptions,
+      });
+
+      if (fallbackResult.success && fallbackResult.data) {
+        const text =
+          typeof fallbackResult.data.text === 'string'
+            ? fallbackResult.data.text.trim()
+            : '';
+        if (!text) {
+          throw new ServiceUnavailableException(
+            'Analysis returned empty response, please try again later',
+          );
+        }
+        return { text };
+      }
+
+      throw new Error(fallbackResult.error?.message || 'Failed to analyze image');
+    }
+  }
+
   private resolveGeminiVideoModel(requestedModel?: string): string {
     const trimmed = requestedModel?.trim();
     if (trimmed && /^gemini-/i.test(trimmed)) {
@@ -1703,6 +1831,16 @@ export class AiController {
 
   private mapUpstreamErrorToHttpException(error: any): HttpException | null {
     const status = this.extractHttpStatusFromError(error);
+
+    if (status === 401) {
+      return new HttpException('上游模型认证失败，请检查 API Key 配置', 401);
+    }
+
+    if (status === 403) {
+      return this.isLeakedApiKeyError(error)
+        ? new HttpException('Gemini API Key 已被 Google 判定为泄露，需立即更换新的 API Key', 403)
+        : new HttpException('上游模型拒绝访问，请检查 API Key 权限或账号状态', 403);
+    }
 
     if (status === 464) {
       return new BadGatewayException('上游任务失败，请稍后重试');
@@ -3759,8 +3897,8 @@ export class AiController {
 
   @Post('analyze-image')
   async analyzeImage(@Body() dto: AnalyzeImageDto, @Req() req: any) {
-    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
-    const model = this.resolveAnalyzeModel(providerName, dto.model);
+    const requestedProvider =
+      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const normalizedImages = Array.from(
       new Set(
         [
@@ -3772,25 +3910,40 @@ export class AiController {
       ),
     );
     if (normalizedImages.length === 0) {
-      throw new BadRequestException('分析图片接口需要提供 sourceImage 或 sourceImages');
+      throw new BadRequestException('分析文件接口需要提供 sourceImage 或 sourceImages');
     }
+    const hasPdf = normalizedImages.some((value) => this.isPdfLikeInput(value));
+    const shouldForceGeminiForPdf =
+      hasPdf && this.isPdfAnalyzeProviderUnsafe(requestedProvider);
+    const effectiveProvider = shouldForceGeminiForPdf ? null : requestedProvider;
+    const model = shouldForceGeminiForPdf
+      ? this.resolveGeminiPdfAnalyzeModel(dto.model)
+      : this.resolveAnalyzeModel(effectiveProvider, dto.model);
     const primarySourceImage = normalizedImages[0];
 
+    if (shouldForceGeminiForPdf) {
+      this.logger.log(
+        `Detected PDF input for analyze-image, rerouting provider ${requestedProvider} to Gemini document analysis with model ${model}`,
+      );
+    }
+
     // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
-    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
+    const customApiKey = this.isGeminiProvider(effectiveProvider)
+      ? await this.getUserCustomApiKey(req)
+      : null;
     const skipCredits = !!customApiKey;
 
     // Map analyze billing by provider tier: Fast(2.5), Pro(3.0), Ultra(3.1).
     const serviceType: ServiceType =
-      providerName === 'banana-2.5'
+      requestedProvider === 'banana-2.5'
         ? 'gemini-2.5-image-analyze'
-        : providerName === 'banana-3.1' || providerName === 'nano2'
+        : requestedProvider === 'banana-3.1' || requestedProvider === 'nano2'
         ? 'gemini-3.1-image-analyze'
         : 'gemini-image-analyze';
 
     return this.withCredits(req, serviceType as any, model, async () => {
-      if (providerName && providerName !== 'gemini-pro') {
-        const provider = this.factory.getProvider(dto.model, providerName);
+      if (effectiveProvider && effectiveProvider !== 'gemini-pro') {
+        const provider = this.factory.getProvider(dto.model, effectiveProvider);
         const result = await provider.analyzeImage({
           prompt: dto.prompt,
           sourceImage: primarySourceImage,
@@ -3814,20 +3967,15 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      const result = await this.imageGeneration.analyzeImage({
-        ...dto,
-        sourceImage: primarySourceImage,
-        sourceImages: normalizedImages,
+      return this.analyzeViaGeminiWithPdfFallback(
+        dto,
+        primarySourceImage,
+        normalizedImages,
+        model,
         customApiKey,
-      });
-      const text = typeof result?.text === 'string' ? result.text.trim() : '';
-      if (!text) {
-        throw new ServiceUnavailableException(
-          'Analysis returned empty response, please try again later',
-        );
-      }
-      return { text };
-    }, normalizedImages.length, 0, skipCredits, this.buildCreditRequestParams(providerName, {
+        hasPdf,
+      );
+    }, normalizedImages.length, 0, skipCredits, this.buildCreditRequestParams(requestedProvider, {
       ...this.buildRequestPromptAndImageParams(dto.prompt, normalizedImages),
     }, dto.providerOptions));
   }
@@ -6227,9 +6375,9 @@ export class AiController {
         }
 
         // Google Gemini 路径：上传到 File API 再分析（需要能直连 Google）
-        const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
+        const apiKey = getGeminiApiKeyFromEnv();
         if (!apiKey) {
-          throw new Error('GOOGLE_GEMINI_API_KEY not configured');
+          throw new Error('Gemini API key not configured');
         }
         geminiClient = new GoogleGenAI({ apiKey });
 

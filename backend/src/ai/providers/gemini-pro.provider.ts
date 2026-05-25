@@ -18,6 +18,8 @@ import {
   PaperJSResult,
 } from './ai-provider.interface';
 import { parseToolSelectionJson } from '../tool-selection-json.util';
+import { getGeminiApiKey } from '../services/gemini-api-key.util';
+import { buildAnalysisPrompt } from '../utils/analysis-prompt.util';
 
 const DEFAULT_TOOLS = [
   'generateImage',
@@ -68,7 +70,7 @@ export class GeminiProProvider implements IAIProvider {
   constructor(private readonly config: ConfigService) { }
 
   async initialize(): Promise<void> {
-    const apiKey = this.config.get<string>('GOOGLE_GEMINI_API_KEY');
+    const apiKey = getGeminiApiKey(this.config);
 
     if (!apiKey) {
       this.logger.warn('Google Gemini API key not configured.');
@@ -675,15 +677,15 @@ export class GeminiProProvider implements IAIProvider {
           .filter((value) => value.length > 0),
       ),
     );
-    if (!sourceInputs.length) {
-      return {
-        success: false,
-        error: {
-          code: 'ANALYSIS_FAILED',
-          message: 'Analyze image requires at least one source image',
-        },
-      };
-    }
+      if (!sourceInputs.length) {
+        return {
+          success: false,
+          error: {
+            code: 'ANALYSIS_FAILED',
+            message: 'Analyze file requires at least one source file',
+          },
+        };
+      }
 
     this.logger.log(`Analyzing ${sourceInputs.length} file(s)...`);
 
@@ -691,15 +693,10 @@ export class GeminiProProvider implements IAIProvider {
       const normalizedInputs = sourceInputs.map((source) => this.normalizeFileInput(source, 'analysis'));
       const client = this.ensureClient();
 
-      // 根据文件类型生成不同的提示词
-      const hasPdf = normalizedInputs.some((item) => item.mimeType === 'application/pdf');
-      const hasImage = normalizedInputs.some((item) => item.mimeType.startsWith('image/'));
-      const fileTypeDesc =
-        normalizedInputs.length > 1 ? 'files' : hasPdf && !hasImage ? 'PDF document' : 'image';
-
-      const analysisPrompt = request.prompt
-        ? `Please analyze the following ${fileTypeDesc} (respond in ${request.prompt})`
-        : `Please analyze this ${fileTypeDesc} in detail`;
+      const analysisPrompt = buildAnalysisPrompt(
+        request.prompt,
+        normalizedInputs,
+      );
 
       const result = await this.withRetry(
         () =>
@@ -753,7 +750,7 @@ export class GeminiProProvider implements IAIProvider {
         success: false,
         error: {
           code: 'ANALYSIS_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to analyze image',
+          message: error instanceof Error ? error.message : 'Failed to analyze file',
           details: error,
         },
       };

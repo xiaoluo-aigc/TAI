@@ -289,8 +289,8 @@ export interface AIError {
 // AI鍥惧儚鍒嗘瀽璇锋眰鍙傛暟
 export interface AIImageAnalyzeRequest {
   prompt?: string;
-  sourceImage: string; // base64 encoded image
-  sourceImages?: string[]; // base64/url array for multi-image analysis
+  sourceImage: string; // image/PDF data URL or base64
+  sourceImages?: string[]; // image/PDF data URL or base64/url array
   sourceImageUrl?: string; // URL to remote image
   model?: string;
   aiProvider?: SupportedAIProvider;
