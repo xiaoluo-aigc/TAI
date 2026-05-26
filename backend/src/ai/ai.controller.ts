@@ -100,8 +100,8 @@ export class AiController {
   private readonly logger = new Logger(AiController.name);
   private readonly providerDefaultImageModels: Record<string, string> = {
     gemini: 'gemini-2.5-flash-image-preview',
-    'gemini-pro': 'gemini-2.5-flash-image-preview',
-    banana: 'gemini-2.5-flash-image-preview',
+    'gemini-pro': 'gemini-3-flash-preview',
+    banana: 'gemini-3-flash-preview',
     'banana-2.5': 'gemini-2.5-flash-image-preview',
     'banana-3.1': 'gemini-3.1-flash-image-preview',
     runninghub: 'runninghub-su-effect',
@@ -1582,12 +1582,7 @@ export class AiController {
 
   private resolveImageModel(providerName: string | null, requestedModel?: string): string {
     const rawModel = requestedModel?.trim();
-    const model =
-      rawModel === 'gemini-3-flash-preview' ||
-      rawModel === 'gemini-3-flash' ||
-      rawModel === 'gemini-3-pro-preview'
-        ? 'gemini-2.5-flash-image-preview'
-        : rawModel;
+    const model = rawModel;
     if (model?.length) {
       this.logger.debug(`[${providerName || 'default'}] Using requested model: ${model}`);
       return model;

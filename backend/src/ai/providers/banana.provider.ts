@@ -95,7 +95,7 @@ export class BananaProvider implements IAIProvider {
   private readonly apimartTextUrl = "https://api.apimart.ai/v1/chat/completions";
   private readonly tencentTextUrl =
     "https://text-aigc.vod-qcloud.com/v1/chat/completions";
-  private readonly DEFAULT_MODEL = "gemini-2.5-flash-image-preview";
+  private readonly DEFAULT_MODEL = "gemini-3-flash-preview";
   private readonly DEFAULT_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_APIMART_TEXT_MODEL = "gemini-3.1-pro-preview";
   private readonly DEFAULT_TENCENT_TEXT_MODEL = "gemini-3-flash-preview";
@@ -332,7 +332,7 @@ export class BananaProvider implements IAIProvider {
       normalized === "gemini-3-flash-preview" ||
       normalized === "gemini-3-flash"
     ) {
-      return "gemini-2.5-flash-image-preview";
+      return "gemini-3-flash-preview";
     }
     return normalized;
   }
@@ -357,7 +357,7 @@ export class BananaProvider implements IAIProvider {
       normalized === "gemini-3-flash-preview" ||
       normalized === "gemini-3-flash"
     ) {
-      return "gemini-2.5-flash-image-preview";
+      return "gemini-3-flash-preview";
     }
     return normalized;
   }
