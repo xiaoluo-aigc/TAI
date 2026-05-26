@@ -486,20 +486,47 @@ export class NodeConfigService {
     return nextMetadata;
   }
 
-  private normalizeNodeConfigOutput<T extends { nodeKey: string; description?: string | null; metadata?: any }>(
+  private normalizeNodeConfigOutput<
+    T extends {
+      nodeKey: string;
+      serviceType?: string | null;
+      creditsPerCall?: number | null;
+      priceYuan?: number | null;
+      description?: string | null;
+      metadata?: any;
+    },
+  >(
     config: T,
   ): T {
-    if (
-      config.nodeKey !== 'doubaoVideo' &&
-      config.nodeKey !== 'seedance20Video' &&
-      config.nodeKey !== 'wan27Video'
-    ) {
-      return config;
+    const creditsOverride = this.resolveCanonicalNodeCredits(config.nodeKey, config.serviceType);
+    let normalizedConfig: T = {
+      ...config,
+      ...(typeof creditsOverride === 'number' ? { creditsPerCall: creditsOverride } : {}),
+    };
+
+    if (normalizedConfig.nodeKey === 'storyboardSplit') {
+      normalizedConfig = {
+        ...normalizedConfig,
+        creditsPerCall: 0,
+        priceYuan: null,
+        serviceType: undefined,
+        description: '将整片分镜脚本提示词拆分为单独条目',
+      };
     }
 
-    if (config.nodeKey === 'wan27Video') {
+    if (
+      normalizedConfig.nodeKey !== 'doubaoVideo' &&
+      normalizedConfig.nodeKey !== 'seedance20Video' &&
+      normalizedConfig.nodeKey !== 'wan27Video'
+    ) {
+      return normalizedConfig;
+    }
+
+    if (normalizedConfig.nodeKey === 'wan27Video') {
       const metadata = {
-        ...(config.metadata && typeof config.metadata === 'object' ? config.metadata : {}),
+        ...(normalizedConfig.metadata && typeof normalizedConfig.metadata === 'object'
+          ? normalizedConfig.metadata
+          : {}),
         ...buildVodNodeMetadata(
           {
             type: 'wan27Video',
@@ -534,13 +561,13 @@ export class NodeConfigService {
       };
 
       return {
-        ...config,
+        ...normalizedConfig,
         description: '阿里百炼 Wan2.7 I2V 视频生成，走 DashScope 异步任务接口',
         metadata,
       };
     }
 
-    const isSeedance20 = config.nodeKey === 'seedance20Video';
+    const isSeedance20 = normalizedConfig.nodeKey === 'seedance20Video';
     const modelVersion = isSeedance20 ? '2.0' : '1.5-pro';
     const supportedModels = isSeedance20 ? SEEDANCE20_SUPPORTED_MODELS : ['seedance-1.5-pro'];
     const resolutions = isSeedance20 ? SEEDANCE20_RESOLUTIONS : ['720P'];
@@ -549,7 +576,9 @@ export class NodeConfigService {
       : ['1.5-Pro 当前接入默认分辨率限制为 720P'];
 
     const metadata = {
-      ...(config.metadata && typeof config.metadata === 'object' ? config.metadata : {}),
+      ...(normalizedConfig.metadata && typeof normalizedConfig.metadata === 'object'
+        ? normalizedConfig.metadata
+        : {}),
       ...buildVodNodeMetadata(
         {
           type: 'doubaoVideo',
@@ -588,13 +617,25 @@ export class NodeConfigService {
     };
 
     return {
-      ...config,
+      ...normalizedConfig,
       description:
         isSeedance20
           ? 'Seedance 2.0视频生成，走火山方舟模型管理'
           : 'Seedance 1.5 Pro视频，走火山方舟模型管理',
       metadata,
     };
+  }
+
+  private resolveCanonicalNodeCredits(
+    nodeKey: string,
+    serviceType?: string | null,
+  ): number | undefined {
+    if (nodeKey === 'textChat') return 2;
+    if (nodeKey === 'promptOptimize') return 5;
+    if (nodeKey === 'storyboardSplit') return 0;
+    if (serviceType === 'gemini-text') return 2;
+    if (serviceType === 'gemini-prompt-optimize') return 5;
+    return undefined;
   }
 
   /**
@@ -1370,8 +1411,8 @@ export class NodeConfigService {
         }),
       },
       { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 34, creditsPerCall: 5, serviceType: 'gemini-prompt-optimize', priceYuan: 0.02, description: 'AI优化提示词' },
-      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 5, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
-      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
+      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
+      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 0, description: '将整片分镜脚本提示词拆分为单独条目' },
       { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拼接多张图片，免费' },
       { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '拆分图片，免费' },
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '按档位压缩图片，免费' },
@@ -1911,8 +1952,8 @@ export class NodeConfigService {
         }),
       },
       { nodeKey: 'promptOptimize', nameZh: '提示词优化', nameEn: 'Optimize', category: 'other', sortOrder: 34, creditsPerCall: 5, serviceType: 'gemini-prompt-optimize', priceYuan: 0.02, description: 'AI优化提示词' },
-      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 5, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
-      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 10, serviceType: 'gemini-text', priceYuan: 0.1, description: '拆解分镜脚本' },
+      { nodeKey: 'textChat', nameZh: '文字对话', nameEn: 'Chat', category: 'other', sortOrder: 35, creditsPerCall: 2, serviceType: 'gemini-text', priceYuan: 0.02, description: 'AI文字对话' },
+      { nodeKey: 'storyboardSplit', nameZh: '分镜拆解', nameEn: 'Storyboard', category: 'other', sortOrder: 36, creditsPerCall: 0, description: '将整片分镜脚本提示词拆分为单独条目' },
       { nodeKey: 'imageGrid', nameZh: '图片拼接', nameEn: 'Grid', category: 'other', sortOrder: 37, creditsPerCall: 0, description: '拼接多张图片，免费' },
       { nodeKey: 'imageSplit', nameZh: '图片拆分', nameEn: 'Split', category: 'other', sortOrder: 38, creditsPerCall: 0, description: '拆分图片，免费' },
       { nodeKey: 'imageCompress', nameZh: '图片压缩', nameEn: 'Image Compress', category: 'other', sortOrder: 39, creditsPerCall: 0, description: '按档位压缩图片，免费' },

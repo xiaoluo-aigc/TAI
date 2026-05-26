@@ -17,19 +17,34 @@ type BananaImageRoute = 'normal' | 'stable';
 /**
  * 根据任务类型和模型映射到 ServiceType
  */
-function resolveTaskServiceType(taskType: ImageTaskType, model?: string): string {
+function resolveTaskServiceType(
+  taskType: ImageTaskType,
+  model?: string,
+  provider?: string,
+): string {
   const normalizedModel = model?.trim().toLowerCase();
+  const normalizedProvider = provider?.trim().toLowerCase();
   switch (taskType) {
     case 'generate':
       if (normalizedModel?.includes('gpt-image-2')) return 'gpt-image-2';
+      if (normalizedProvider === 'midjourney') return 'midjourney-imagine';
+      if (normalizedProvider === 'seedream5' || normalizedModel?.includes('seedream')) {
+        return 'doubao-seedream-5-0-260128';
+      }
       if (normalizedModel?.includes('3.1')) return 'gemini-3.1-image';
       if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image';
       return 'gemini-3-pro-image';
     case 'edit':
+      if (normalizedProvider === 'seedream5' || normalizedModel?.includes('seedream')) {
+        return 'doubao-seedream-5-0-260128';
+      }
       if (normalizedModel?.includes('3.1')) return 'gemini-3.1-image-edit';
       if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image-edit';
       return 'gemini-image-edit';
     case 'blend':
+      if (normalizedProvider === 'seedream5' || normalizedModel?.includes('seedream')) {
+        return 'doubao-seedream-5-0-260128';
+      }
       if (normalizedModel?.includes('3.1')) return 'gemini-3.1-image-blend';
       if (normalizedModel?.includes('2.5')) return 'gemini-2.5-image-blend';
       return 'gemini-image-blend';
@@ -101,6 +116,110 @@ export class ImageTaskService {
     if (optionsLegacyRoute) return optionsLegacyRoute;
 
     return this.normalizeBananaImageRoute(requestData?.bananaImageRoute);
+  }
+
+  private buildCreditsRequestParamsFromTaskRequest(task: any, requestData: any): Record<string, any> {
+    const providerOptions =
+      requestData?.providerOptions && typeof requestData.providerOptions === 'object'
+        ? requestData.providerOptions
+        : undefined;
+
+    const imageUrls = Array.isArray(requestData?.imageUrls)
+      ? requestData.imageUrls.filter((item: unknown) => typeof item === 'string' && item.trim().length > 0)
+      : [];
+    const sourceImageUrls = Array.isArray(requestData?.sourceImageUrls)
+      ? requestData.sourceImageUrls.filter(
+          (item: unknown) => typeof item === 'string' && item.trim().length > 0,
+        )
+      : [];
+    const sourceImages = Array.isArray(requestData?.sourceImages)
+      ? requestData.sourceImages.filter((item: unknown) => typeof item === 'string' && item.trim().length > 0)
+      : [];
+
+    const resolvedRoute = this.resolveTaskBananaImageRoute(requestData);
+    const channelHint =
+      resolvedRoute === 'stable'
+        ? 'tencent'
+        : resolvedRoute === 'normal'
+        ? 'apimart'
+        : typeof task?.aiProvider === 'string' && task.aiProvider.trim().toLowerCase() === 'nano2'
+        ? 'apimart'
+        : undefined;
+
+    return {
+      taskId: task.id,
+      taskType: task.type,
+      aiProvider: task.aiProvider || requestData?.aiProvider,
+      requestedProvider: requestData?.aiProvider,
+      model: requestData?.model,
+      imageSize: requestData?.imageSize,
+      aspectRatio: requestData?.aspectRatio,
+      quality: requestData?.quality,
+      outputImageCount: requestData?.outputImageCount,
+      batchMode: requestData?.batchMode,
+      batchCount: requestData?.batchCount,
+      referenceImageCount:
+        typeof requestData?.referenceImageCount === 'number'
+          ? requestData.referenceImageCount
+          : imageUrls.length || sourceImageUrls.length || sourceImages.length || undefined,
+      bananaImageRoute: resolvedRoute || undefined,
+      channelHint,
+      providerOptions,
+      modelKey: requestData?.modelKey,
+      managedModelKey: requestData?.managedModelKey,
+      vendorKey: requestData?.vendorKey,
+      platformKey: requestData?.platformKey,
+      nodeConfigKey: requestData?.nodeConfigKey,
+      nodeConfigNameZh: requestData?.nodeConfigNameZh,
+      nodeConfigNameEn: requestData?.nodeConfigNameEn,
+    };
+  }
+
+  private resolveTaskOutputImageCount(requestData: any): number {
+    const explicitOutputCount = Number(requestData?.outputImageCount);
+    if (Number.isFinite(explicitOutputCount) && explicitOutputCount > 0) {
+      return Math.max(1, Math.floor(explicitOutputCount));
+    }
+
+    const batchCount =
+      requestData?.batchMode && Number.isFinite(Number(requestData?.batchCount))
+        ? Number(requestData.batchCount)
+        : NaN;
+    if (Number.isFinite(batchCount) && batchCount > 0) {
+      return Math.max(1, Math.floor(batchCount));
+    }
+
+    return 1;
+  }
+
+  private resolveTaskInputImageCount(taskType: ImageTaskType, requestData: any): number {
+    const imageUrls = Array.isArray(requestData?.imageUrls)
+      ? requestData.imageUrls.filter((item: unknown) => typeof item === 'string' && item.trim().length > 0)
+      : [];
+    const sourceImageUrls = Array.isArray(requestData?.sourceImageUrls)
+      ? requestData.sourceImageUrls.filter(
+          (item: unknown) => typeof item === 'string' && item.trim().length > 0,
+        )
+      : [];
+    const sourceImages = Array.isArray(requestData?.sourceImages)
+      ? requestData.sourceImages.filter((item: unknown) => typeof item === 'string' && item.trim().length > 0)
+      : [];
+
+    if (taskType === 'blend') {
+      return sourceImages.length || sourceImageUrls.length || imageUrls.length || 0;
+    }
+
+    if (taskType === 'edit') {
+      if (
+        (typeof requestData?.sourceImage === 'string' && requestData.sourceImage.trim().length > 0) ||
+        (typeof requestData?.sourceImageUrl === 'string' && requestData.sourceImageUrl.trim().length > 0)
+      ) {
+        return 1;
+      }
+      return sourceImages.length || sourceImageUrls.length || imageUrls.length || 0;
+    }
+
+    return imageUrls.length || sourceImageUrls.length || sourceImages.length || 0;
   }
 
   private resolveEffectiveProviderName(task: any, requestData: any): string {
@@ -407,8 +526,9 @@ export class ImageTaskService {
     // 解析任务的服务类型
     const model = taskRequestData?.model as string | undefined;
     const taskType = task.type as ImageTaskType;
-    const serviceType = resolveTaskServiceType(taskType, model);
-    const outputImageCount = 1; // 默认生成1张图片
+    const serviceType = resolveTaskServiceType(taskType, model, task.aiProvider || undefined);
+    const outputImageCount = this.resolveTaskOutputImageCount(taskRequestData);
+    const inputImageCount = this.resolveTaskInputImageCount(taskType, taskRequestData);
     const apiUsageId = taskRequestData?.apiUsageId as string | undefined;
 
     // 如果有 apiUsageId，则说明已在控制器层预扣积分；否则需要自己处理
@@ -437,12 +557,9 @@ export class ImageTaskService {
                 userId: task.userId,
                 serviceType: serviceType as any,
                 model,
-                inputImageCount: 0,
+                inputImageCount,
                 outputImageCount,
-                requestParams: {
-                  taskId,
-                  taskType,
-                },
+                requestParams: this.buildCreditsRequestParamsFromTaskRequest(task, taskRequestData),
               });
               effectiveApiUsageId = deductResult.apiUsageId;
               this.logger.debug(
@@ -592,7 +709,11 @@ export class ImageTaskService {
           });
 
           // GPT-image-2 节点失败时不返还积分
-          const resolvedServiceType = resolveTaskServiceType(taskType, taskRequestData?.model || undefined);
+          const resolvedServiceType = resolveTaskServiceType(
+            taskType,
+            taskRequestData?.model || undefined,
+            task.aiProvider || undefined,
+          );
           const skipRefund = resolvedServiceType === 'gpt-image-2';
 
           // 任务失败，标记积分状态为失败

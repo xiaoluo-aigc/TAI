@@ -1245,9 +1245,9 @@ const QUICK_CONNECT_BASE_PRESET: Record<
 const NODE_CREDITS_MAP: Record<string, number | string> = {
   // 普通节点
   textPrompt: 0, // 提示词节点 - 不消耗积分
-  textChat: 10, // 纯文本交互节点 - gemini-text
+  textChat: 2, // 纯文本交互节点 - gemini-text
   textNote: 0, // 纯文本节点 - 不消耗积分
-  promptOptimize: 10, // 提示词优化节点 - gemini-text
+  promptOptimize: 5, // 提示词优化节点
   analysis: 10, // 图像分析节点 - gemini-2.5-image-analyze (Fast default)
   image: 0, // 图片节点 - 不消耗积分
   // Banana 生图节点（按模型+分辨率动态计费，Run 按当前参数实时展示）
@@ -1259,7 +1259,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   midjourney: 50, // Midjourney生成 - midjourney-imagine
   midjourneyV7: 50, // Midjourney V7 生成
   niji7: 50, // Niji 7 生成
-  nano2: 20, // Nano Banana 2 生图
+  nano2: 30, // Nano Banana 2 生图
   gptImage2: 40, // Gpt-Imgae-2 生图
   seedream5: 30, // Seedream 5.0 生图
   three: 200, // 三维节点 - convert-2d-to-3d
@@ -1663,6 +1663,7 @@ const BANANA_DYNAMIC_NODE_TYPES = new Set<FlowNodeType>([
   "generate",
   "generate4",
   "generateRef",
+  "viewAngle",
   "generatePro",
   "generatePro4",
   "analysis",
@@ -1672,6 +1673,7 @@ const IMAGE_DYNAMIC_CREDIT_NODE_TYPES = new Set<FlowNodeType>([
   "generate",
   "generate4",
   "generateRef",
+  "viewAngle",
   "generatePro",
   "generatePro4",
   "analysis",
@@ -1770,8 +1772,8 @@ const BANANA_STABLE_ROUTE_PRICING: Record<
   // Ultra: Nano Banana 2
   ultra: {
     "0.5K": 30,
-    "1K": 40,
-    "2K": 50,
+    "1K": 50,
+    "2K": 70,
     "4K": 110,
   },
 };
@@ -1781,14 +1783,14 @@ const BANANA_TEXT_ROUTE_PRICING: Record<
   Record<BananaPricingTier, number>
 > = {
   normal: {
-    fast: 10,
-    pro: 20,
-    ultra: 30,
+    fast: 2,
+    pro: 2,
+    ultra: 2,
   },
   stable: {
-    fast: 20,
-    pro: 30,
-    ultra: 50,
+    fast: 2,
+    pro: 2,
+    ultra: 2,
   },
 };
 
@@ -2217,15 +2219,12 @@ const resolveStableRouteCredits = (params: {
       ? nodeData.modelProvider.trim()
       : aiProvider;
 
-  if (normalizedType === "textChat" || normalizedType === "promptOptimize") {
-    const tier = resolveBananaPricingTierByProvider(providerForPricing);
-    if (tier) {
-      const routeKey = bananaImageRoute === "stable" ? "stable" : "normal";
-      const configuredCredits = Number(BANANA_TEXT_ROUTE_PRICING[routeKey][tier]);
-      if (Number.isFinite(configuredCredits) && configuredCredits > 0) {
-        resolvedCredits = configuredCredits;
-      }
-    }
+  if (normalizedType === "textChat") {
+    resolvedCredits = 2;
+  }
+
+  if (normalizedType === "promptOptimize") {
+    resolvedCredits = 5;
   }
 
   if (bananaImageRoute === "stable" && normalizedType === "gptImage2") {

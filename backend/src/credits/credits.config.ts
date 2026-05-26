@@ -117,7 +117,7 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-text': {
     serviceName: 'Gemini 文字对话',
     provider: 'gemini',
-    creditsPerCall: 5,
+    creditsPerCall: 2,
     description: '使用 Gemini 进行文字对话',
     maxInputTokens: 8000,
     maxContextLength: 32000,
@@ -133,7 +133,7 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-tool-selection': {
     serviceName: 'Gemini 工具选择',
     provider: 'gemini',
-    creditsPerCall: 0,
+    creditsPerCall: 2,
     description: '使用 Gemini 进行智能工具选择',
   },
   'gemini-paperjs': {

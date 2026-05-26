@@ -150,7 +150,8 @@ const VIEW_APPEARANCE_STORAGE_KEY = "tanva-view-settings";
 const REFERRAL_NOTIFICATION_LAST_SEEN_DATE_STORAGE_KEY =
   "tanva-referral-notification-last-seen-date";
 const MAX_QUICK_PROJECTS = 5;
-const USER_MANUAL_URL = "https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd";
+const USER_MANUAL_URL =
+  "https://fcn0tn5wd2p8.feishu.cn/wiki/CWZpw5T9EiZvRzkaoe0c3Bmgn5c?from=from_copylink";
 const CHANGELOG_URL =
   "https://gcnyatv1ofs3.feishu.cn/wiki/NMVhwMbglijVwFkW8HKcfpCynIp";
 

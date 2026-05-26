@@ -302,7 +302,7 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
 // 尊享路线 (stable/tencent) 定价
 // Fast: 1K=40
 // Pro: 1K=90, 2K=100, 4K=170
-// Ultra: 0.5K=30, 1K=40, 2K=50, 4K=110
+// Ultra: 0.5K=30, 1K=50, 2K=70, 4K=110
 const BANANA_TENCENT_STABLE_RESOLUTION_PRICING: Record<
   BananaTencentPricingTier,
   Record<'0.5K' | '1K' | '2K' | '4K', number>
@@ -321,8 +321,8 @@ const BANANA_TENCENT_STABLE_RESOLUTION_PRICING: Record<
   },
   ultra: {
     '0.5K': 30,
-    '1K': 40,
-    '2K': 50,
+    '1K': 50,
+    '2K': 70,
     '4K': 110,
   },
 };
@@ -1384,70 +1384,13 @@ export class CreditsService {
     requestParams: any,
     model?: string,
   ): number {
-    if (serviceType !== 'gemini-text' && serviceType !== 'gemini-prompt-optimize') {
-      return defaultCredits;
+    if (serviceType === 'gemini-text') {
+      return 2;
     }
-
-    // DEBUG: Log input parameters for credit calculation
-    this.logger.debug(
-      `[Credits] resolveBananaTextRouteCredits: serviceType=${serviceType}, defaultCredits=${defaultCredits}, model=${model}, requestParams=${JSON.stringify(requestParams)}`
-    );
-
-    const explicitRoute =
-      this.normalizeBananaImageRoute(requestParams?.bananaImageRoute) ||
-      this.normalizeBananaImageRoute(requestParams?.providerOptions?.banana?.imageRoute) ||
-      this.normalizeBananaImageRoute(requestParams?.providerOptions?.bananaImageRoute);
-
-    const channelCandidates = [
-      requestParams?.channel,
-      requestParams?.providerChannel,
-      requestParams?.executionChannel,
-      requestParams?.channelHint,
-    ];
-    let channel: string | null = null;
-    for (const candidate of channelCandidates) {
-      if (typeof candidate !== 'string') continue;
-      const normalized = this.normalizeChannel(candidate);
-      if (normalized) {
-        channel = normalized;
-        break;
-      }
+    if (serviceType === 'gemini-prompt-optimize') {
+      return 5;
     }
-
-    let route: 'normal' | 'stable' | null = explicitRoute;
-    if (!route) {
-      if (channel === 'tencent') {
-        route = 'stable';
-      } else if (channel === 'apimart' || channel === '147') {
-        route = 'normal';
-      }
-    }
-
-    const providerTier =
-      this.resolveBananaTextPricingTierFromProvider(requestParams?.aiProvider) ||
-      this.resolveBananaTextPricingTierFromProvider(requestParams?.requestedProvider) ||
-      this.resolveBananaTextPricingTierFromProvider(requestParams?.routedProvider);
-    const tier =
-      providerTier ||
-      (route
-        ? this.resolveBananaTextPricingTierFromModel(model || requestParams?.model)
-        : null);
-    if (!tier) {
-      this.logger.debug(`[Credits] resolveBananaTextRouteCredits: no tier found, returning defaultCredits=${defaultCredits}`);
-      return defaultCredits;
-    }
-
-    const routeKey: 'normal' | 'stable' = route || 'normal';
-    const configuredCredits = Number(BANANA_TEXT_CHAT_ROUTE_PRICING[routeKey][tier]);
-    if (!Number.isFinite(configuredCredits) || configuredCredits <= 0) {
-      this.logger.debug(`[Credits] resolveBananaTextRouteCredits: invalid credits, returning defaultCredits=${defaultCredits}`);
-      return defaultCredits;
-    }
-
-    this.logger.debug(
-      `[Credits] resolveBananaTextRouteCredits: route=${routeKey}, tier=${tier}, credits=${configuredCredits}`
-    );
-    return configuredCredits;
+    return defaultCredits;
   }
 
   private resolveTencentBananaResolutionCredits(

@@ -637,3 +637,4 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - Backend background removal service and isolated worker now resolve `@imgly/background-removal-node` via `require.resolve(.../package.json)` first, then derive the real package `dist/resources.json` path.
 - This avoids false negatives on deployment targets using `pnpm`/symlinked `node_modules` layouts where hardcoded `node_modules/@imgly/.../dist` checks can fail even though the package is installed.
+- Credits/Flow Pricing: aligned text/tool pricing to the current pricing table (`gemini-text=2`, `gemini-prompt-optimize=5`, `gemini-tool-selection=2`), made `storyboardSplit` free in node config output, and corrected Banana stable-route Ultra display/deduction for `1K=50` and `2K=70`; Flow `viewAngle` now participates in the same dynamic Banana image pricing as other edit nodes.
