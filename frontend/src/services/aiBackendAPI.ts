@@ -346,6 +346,7 @@ const resolveDefaultModel = (
 type BackendImagePayload = {
   imageData?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   textResponse?: string;
   metadata?: Record<string, any>;
 };
@@ -376,6 +377,22 @@ const mapBackendImageResult = ({
     metadata.imageUrl = resolvedImageUrl;
   }
 
+  const resolvedImageUrls = Array.isArray(data.imageUrls)
+    ? data.imageUrls.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : Array.isArray(metadata.imageUrls)
+    ? metadata.imageUrls.filter(
+        (item: unknown): item is string => typeof item === "string" && item.trim().length > 0
+      )
+    : Array.isArray(metadata.midjourney?.imageUrls)
+    ? metadata.midjourney.imageUrls.filter(
+        (item: unknown): item is string => typeof item === "string" && item.trim().length > 0
+      )
+    : [];
+
+  if (resolvedImageUrls.length > 0) {
+    metadata.imageUrls = resolvedImageUrls;
+  }
+
   // 确保 imageData 带 data URI 前缀，避免裸 base64 无法直接展示
   const normalizedImageData =
     typeof data.imageData === "string" && data.imageData.trim().length > 0
@@ -396,6 +413,7 @@ const mapBackendImageResult = ({
     id: generateUUID(),
     imageData: resolvedImageUrl ? undefined : normalizedImageData,
     imageUrl: resolvedImageUrl,
+    imageUrls: resolvedImageUrls.length > 0 ? resolvedImageUrls : undefined,
     textResponse: data.textResponse,
     prompt,
     model,
@@ -413,8 +431,10 @@ type ImageTaskCreateResponse = {
 type ImageTaskStatusResponse = {
   status: string;
   imageUrl?: string;
+  imageUrls?: string[];
   thumbnailUrl?: string;
   textResponse?: string;
+  metadata?: Record<string, any>;
   error?: string;
 };
 
@@ -580,8 +600,10 @@ async function waitForAsyncImageTaskResult(params: {
       const mapped = mapBackendImageResult({
         data: {
           imageUrl: pollResponse.data.imageUrl,
+          imageUrls: pollResponse.data.imageUrls,
           textResponse: pollResponse.data.textResponse,
           metadata: {
+            ...(pollResponse.data.metadata || {}),
             asyncTask: true,
             taskId,
             taskStatus,

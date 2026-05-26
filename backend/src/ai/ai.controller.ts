@@ -6636,12 +6636,27 @@ export class AiController {
 
     const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     const task = await this.imageTaskService.getTaskStatus(taskId, userId);
+    const requestData =
+      task.requestData && typeof task.requestData === 'object'
+        ? (task.requestData as Record<string, any>)
+        : {};
+    const resultImageUrls = Array.isArray(requestData.resultImageUrls)
+      ? requestData.resultImageUrls.filter(
+          (item: unknown): item is string => typeof item === 'string' && item.trim().length > 0,
+        )
+      : [];
+    const resultMetadata =
+      requestData.resultMetadata && typeof requestData.resultMetadata === 'object'
+        ? (requestData.resultMetadata as Record<string, any>)
+        : undefined;
 
     return {
       status: task.status,
       imageUrl: task.imageUrl,
+      imageUrls: resultImageUrls,
       thumbnailUrl: task.thumbnailUrl,
       textResponse: task.textResponse,
+      metadata: resultMetadata,
       error: task.error,
       progress: task.status === 'processing' ? 50 : task.status === 'succeeded' ? 100 : 0,
     };

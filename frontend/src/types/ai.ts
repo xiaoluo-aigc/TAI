@@ -60,6 +60,7 @@ export interface MidjourneyMetadata {
   taskId: string;
   buttons?: MidjourneyButtonInfo[];
   imageUrl?: string;
+  imageUrls?: string[];
   status?: string;
   parentTaskId?: string;
   actionCustomId?: string;
@@ -237,6 +238,7 @@ export interface AIImageResult {
   id: string;
   imageData?: string; // base64 encoded image (鍙€夛紝API鍙兘鍙繑鍥炴枃鏈?
   imageUrl?: string; // 杩滅▼ URL锛堟帹鑽愮敤浜庣敾甯冩寔涔呭寲锛岄伩鍏?base64/dataURL锛?
+  imageUrls?: string[];
   textResponse?: string; // AI鐨勬枃鏈洖澶嶏紝濡?Okay, here's a cat for you!"
   prompt: string;
   model: string;

@@ -66,8 +66,28 @@ export class ImageTaskService {
     private readonly creditsService: CreditsService,
   ) {}
 
-  private extractProviderImagePayload(resultData: any): { imageUrl?: string; imageData?: string } {
+  private normalizeImageUrlList(candidate: unknown): string[] {
+    if (!Array.isArray(candidate)) return [];
+    return candidate
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .map((item) => item.trim());
+  }
+
+  private extractProviderImagePayload(resultData: any): {
+    imageUrl?: string;
+    imageData?: string;
+    imageUrls?: string[];
+  } {
     if (!resultData || typeof resultData !== 'object') return {};
+
+    const directImageUrls = this.normalizeImageUrlList(resultData.imageUrls);
+    const metadataImageUrls = this.normalizeImageUrlList(resultData.metadata?.imageUrls);
+    const midjourneyImageUrls = this.normalizeImageUrlList(
+      resultData.metadata?.midjourney?.imageUrls,
+    );
+    const imageUrls = Array.from(
+      new Set([...directImageUrls, ...metadataImageUrls, ...midjourneyImageUrls]),
+    );
 
     const directImageUrl =
       typeof resultData.imageUrl === 'string' && /^https?:\/\//i.test(resultData.imageUrl)
@@ -82,8 +102,13 @@ export class ImageTaskService {
         ? resultData.metadata.imageUrl
         : undefined;
 
-    const imageUrl = directImageUrl || metadataImageUrl;
-    if (imageUrl) return { imageUrl };
+    const imageUrl = directImageUrl || metadataImageUrl || imageUrls[0];
+    if (imageUrl || imageUrls.length > 0) {
+      return {
+        ...(imageUrl ? { imageUrl } : {}),
+        ...(imageUrls.length > 0 ? { imageUrls } : {}),
+      };
+    }
 
     const imageData =
       typeof resultData.imageData === 'string' && resultData.imageData.trim().length > 0
@@ -625,9 +650,18 @@ export class ImageTaskService {
               throw new Error(`不支持的任务类型: ${taskType}`);
           }
 
-          const taskImagePayload =
-            typeof result?.imageUrl === 'string' && /^https?:\/\//i.test(result.imageUrl)
+          const resultImageUrls = this.normalizeImageUrlList(
+            Array.isArray(result?.imageUrls)
+              ? result.imageUrls
+              : result?.metadata?.midjourney?.imageUrls || result?.metadata?.imageUrls,
+          );
+          const primaryRemoteImageUrl =
+            (typeof result?.imageUrl === 'string' && /^https?:\/\//i.test(result.imageUrl)
               ? result.imageUrl
+              : undefined) || resultImageUrls[0];
+          const taskImagePayload =
+            primaryRemoteImageUrl
+              ? primaryRemoteImageUrl
               : typeof result?.imageData === 'string'
               ? result.imageData
               : '';
@@ -638,17 +672,56 @@ export class ImageTaskService {
 
           let persistedImageUrl: string | null = null;
           let persistedThumbnailUrl: string | null = null;
+          let persistedImageUrls: string[] = [];
+          if (resultImageUrls.length > 0) {
+            for (const rawImageUrl of resultImageUrls) {
+              try {
+                const uploaded = await this.uploadRemoteImageToOss(rawImageUrl, task.userId);
+                persistedImageUrls.push(uploaded.url);
+              } catch (uploadError) {
+                this.logger.warn(
+                  `图像任务多图上传失败，保留原始 URL: taskId=${taskId}, url=${rawImageUrl}, error=${
+                    uploadError instanceof Error ? uploadError.message : String(uploadError)
+                  }`,
+                );
+                persistedImageUrls.push(rawImageUrl);
+              }
+            }
+            persistedImageUrls = Array.from(new Set(persistedImageUrls.filter(Boolean)));
+          }
+
           if (taskImagePayload) {
             if (/^https?:\/\//i.test(taskImagePayload)) {
-              const uploaded = await this.uploadRemoteImageToOss(taskImagePayload, task.userId);
-              persistedImageUrl = uploaded.url;
-              persistedThumbnailUrl = uploaded.url;
+              if (persistedImageUrls.length > 0) {
+                persistedImageUrl = persistedImageUrls[0];
+                persistedThumbnailUrl = persistedImageUrls[0];
+              } else {
+                const uploaded = await this.uploadRemoteImageToOss(taskImagePayload, task.userId);
+                persistedImageUrl = uploaded.url;
+                persistedThumbnailUrl = uploaded.url;
+                persistedImageUrls = [uploaded.url];
+              }
             } else {
               const uploaded = await this.uploadImagePayloadToOss(taskImagePayload, task.userId);
               persistedImageUrl = uploaded.url;
               persistedThumbnailUrl = uploaded.url;
+              if (persistedImageUrls.length === 0) {
+                persistedImageUrls = [uploaded.url];
+              }
             }
           }
+
+          const resultMetadata =
+            result?.metadata && typeof result.metadata === 'object'
+              ? (result.metadata as Record<string, any>)
+              : null;
+          const nextRequestData = {
+            ...((taskRequestData && typeof taskRequestData === 'object'
+              ? taskRequestData
+              : {}) as Record<string, any>),
+            resultImageUrls: persistedImageUrls,
+            ...(resultMetadata ? { resultMetadata } : {}),
+          };
 
           await this.prisma.imageTask.update({
             where: { id: taskId },
@@ -657,6 +730,7 @@ export class ImageTaskService {
               imageUrl: persistedImageUrl,
               thumbnailUrl: persistedThumbnailUrl,
               textResponse: result.textResponse,
+              requestData: nextRequestData,
               completedAt: new Date(),
             },
           });
@@ -691,6 +765,7 @@ export class ImageTaskService {
             durationMs: Date.now() - startedAt,
             metadata: {
               hasImage: Boolean(persistedImageUrl),
+              imageCount: persistedImageUrls.length || (persistedImageUrl ? 1 : 0),
               hasTextResponse: Boolean(result?.textResponse),
             },
             receivedAt: new Date().toISOString(),
