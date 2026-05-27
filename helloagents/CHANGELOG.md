@@ -638,3 +638,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Backend background removal service and isolated worker now resolve `@imgly/background-removal-node` via `require.resolve(.../package.json)` first, then derive the real package `dist/resources.json` path.
 - This avoids false negatives on deployment targets using `pnpm`/symlinked `node_modules` layouts where hardcoded `node_modules/@imgly/.../dist` checks can fail even though the package is installed.
 - Credits/Flow Pricing: aligned text/tool pricing to the current pricing table (`gemini-text=2`, `gemini-prompt-optimize=5`, `gemini-tool-selection=2`), made `storyboardSplit` free in node config output, and corrected Banana stable-route Ultra display/deduction for `1K=50` and `2K=70`; Flow `viewAngle` now participates in the same dynamic Banana image pricing as other edit nodes.
+
+## [Video Analysis Async Polling - 2026-05-27]
+### Changed
+- Video analysis now has an async `taskId + polling` path to avoid long-request `504`s: backend adds `POST /api/ai/analyze-video-async` and `GET /api/ai/analyze-video-task/:taskId`, both reusing the existing video-analysis pipeline.
+- Frontend `VideoAnalyzeNode` now creates an async task and polls for completion instead of waiting on a single long-running `/api/ai/analyze-video` request.

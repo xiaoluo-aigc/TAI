@@ -10,6 +10,12 @@ export interface AsyncTaskResult {
     thumbnailUrl?: string;
     modelUrl?: string;
     modelKey?: string;
+    analysis?: string;
+    text?: string;
+    frameCount?: number;
+    processingTime?: number;
+    provider?: string;
+    model?: string;
     promptId?: string;
     content?: string;
     referencedUrls?: string[];

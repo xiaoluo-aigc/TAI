@@ -1740,6 +1740,318 @@ export class AiController {
     return 'gemini-3-flash-preview';
   }
 
+  private resolveVideoAnalysisProgress(stage: string): number {
+    switch (stage) {
+      case 'queued':
+        return 5;
+      case 'download_video':
+        return 15;
+      case 'extract_frames':
+        return 35;
+      case 'analyze_frames':
+        return 65;
+      case 'upload_to_gemini':
+        return 40;
+      case 'wait_processing':
+        return 70;
+      case 'generate_content':
+      case 'summarize':
+        return 90;
+      case 'completed':
+        return 100;
+      default:
+        return 50;
+    }
+  }
+
+  private async runVideoAnalysisPipeline(
+    dto: AnalyzeVideoDto,
+    options?: {
+      onStageChange?: (stage: string, extra?: Record<string, any>) => void;
+    },
+  ): Promise<{
+    analysis: string;
+    text: string;
+    model?: string;
+    provider?: string;
+    processingTime: number;
+    frameCount?: number;
+  }> {
+    const startTime = Date.now();
+    const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
+    const PROCESSING_TIMEOUT_MS = 10 * 60 * 1000;
+    const emitStage = (stage: string, extra?: Record<string, any>) => {
+      options?.onStageChange?.(stage, extra);
+    };
+
+    const parsedUrl = this.parseAndValidateAllowedUrl(dto.videoUrl);
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveGeminiVideoModel(dto.model);
+
+    let tempFile: string | null = null;
+    let uploadedFileName: string | null = null;
+    let geminiClient: GoogleGenAI | null = null;
+    let stage = 'download_video';
+
+    emitStage(stage);
+
+    try {
+      const bananaVideoMode =
+        providerName === 'banana' || providerName === 'banana-2.5' || providerName === 'banana-3.1'
+          ? await this.getBananaImageProviderMode(dto.providerOptions)
+          : null;
+      const allow147DirectVideoUnderstanding =
+        bananaVideoMode === 'legacy' || bananaVideoMode === 'legacy_auto';
+
+      if (providerName && providerName !== 'gemini-pro') {
+        if (
+          (providerName === 'banana' ||
+            providerName === 'banana-2.5' ||
+            providerName === 'banana-3.1') &&
+          allow147DirectVideoUnderstanding
+        ) {
+          stage = 'direct_video_understanding';
+          emitStage(stage);
+          const analysisText = await this.analyzeVideoVia147ChatCompletions({
+            model,
+            prompt: dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息',
+            videoUrl: parsedUrl.toString(),
+          });
+          const processingTime = Date.now() - startTime;
+          return {
+            analysis: analysisText,
+            text: analysisText,
+            model,
+            provider: providerName,
+            processingTime,
+          };
+        }
+      }
+
+      stage = 'download_video';
+      emitStage(stage);
+      this.logger.log('📥 Downloading video from OSS...');
+      const videoResponse = await fetch(parsedUrl.toString(), { redirect: 'follow' });
+      if (!videoResponse.ok) {
+        throw new Error(`Failed to download video: HTTP ${videoResponse.status}`);
+      }
+      this.parseAndValidateAllowedUrl(videoResponse.url);
+      if (!videoResponse.body) {
+        throw new Error('Empty video response body');
+      }
+
+      const contentType = videoResponse.headers.get('content-type') || 'video/mp4';
+      const contentLengthHeader = videoResponse.headers.get('content-length');
+      if (contentLengthHeader) {
+        const size = Number(contentLengthHeader);
+        if (Number.isFinite(size) && size > MAX_VIDEO_BYTES) {
+          throw new BadRequestException('视频文件过大，请使用更小的视频');
+        }
+      }
+
+      const os = await import('os');
+      const path = await import('path');
+      const fs = await import('fs');
+      const { pipeline } = await import('stream/promises');
+      const { Readable, Transform } = await import('stream');
+
+      const ext = (() => {
+        const map: Record<string, string> = {
+          'video/mp4': '.mp4',
+          'video/quicktime': '.mov',
+          'video/x-msvideo': '.avi',
+          'video/mpeg': '.mpeg',
+          'video/3gpp': '.3gp',
+          'video/x-flv': '.flv',
+        };
+        return map[contentType.split(';')[0].trim().toLowerCase()] || '.mp4';
+      })();
+
+      tempFile = path.join(os.tmpdir(), `video-${Date.now()}${ext}`);
+
+      let received = 0;
+      const limiter = new Transform({
+        transform(chunk, _enc, cb) {
+          received += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
+          if (received > MAX_VIDEO_BYTES) {
+            cb(new BadRequestException('Video file too large'));
+            return;
+          }
+          cb(null, chunk);
+        },
+      });
+
+      await pipeline(
+        Readable.fromWeb(videoResponse.body as any),
+        limiter,
+        fs.createWriteStream(tempFile),
+      );
+
+      this.logger.log(`📦 Video downloaded: ${received} bytes, type: ${contentType}`);
+
+      if (providerName && providerName !== 'gemini-pro') {
+        stage = 'extract_frames';
+        emitStage(stage);
+        const provider = this.factory.getProvider(dto.model, providerName);
+        const maxFrames = 8;
+        const intervalSeconds = 3;
+        this.logger.log(`🖼️ Extracting frames via ffmpeg (maxFrames=${maxFrames}, every ${intervalSeconds}s)...`);
+        const frames = await this.extractFramesAsDataUrls({
+          videoPath: tempFile,
+          maxFrames,
+          intervalSeconds,
+        });
+        if (!frames.length) {
+          throw new ServiceUnavailableException('无法从视频中提取帧，请检查视频文件是否损坏');
+        }
+
+        stage = 'analyze_frames';
+        emitStage(stage, { frameCount: frames.length });
+        const visionModel = this.resolveImageModel(providerName, dto.model);
+        const framePrompt =
+          '请描述这一帧画面（场景、人物、动作、字幕/界面元素），尽量客观，不要编造。';
+        const frameAnalyses: string[] = [];
+        for (let i = 0; i < frames.length; i++) {
+          const result = await provider.analyzeImage({
+            prompt: framePrompt,
+            sourceImage: frames[i],
+            model: visionModel,
+            providerOptions: dto.providerOptions,
+          });
+          if (!result.success || !result.data) {
+            throw new ServiceUnavailableException(
+              result.error?.message || 'Failed to analyze extracted frame',
+            );
+          }
+          frameAnalyses.push(result.data.text);
+        }
+
+        stage = 'summarize';
+        emitStage(stage, { frameCount: frames.length });
+        const userPrompt =
+          dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息';
+        const summaryPrompt = [
+          '你将获得从同一段视频抽帧得到的多帧描述，请根据这些信息总结整段视频。',
+          `用户分析要求：${userPrompt}`,
+          '抽帧描述：',
+          ...frameAnalyses.map((t, idx) => `${idx + 1}. ${t}`),
+          '请输出：1) 视频整体内容概述 2) 关键场景/动作 3) 可能的时间线(如可推断) 4) 关键信息/字幕(如有)。',
+        ].join('\n');
+
+        const textResult = await provider.generateText({
+          prompt: summaryPrompt,
+          model,
+          providerOptions: dto.providerOptions,
+        });
+        if (!textResult.success || !textResult.data) {
+          throw new ServiceUnavailableException(
+            textResult.error?.message || 'Failed to summarize video frames',
+          );
+        }
+
+        const analysisText = textResult.data.text || '';
+        const processingTime = Date.now() - startTime;
+        return {
+          analysis: analysisText,
+          text: analysisText,
+          model,
+          provider: providerName,
+          processingTime,
+          frameCount: frames.length,
+        };
+      }
+
+      const apiKey = getGeminiApiKeyFromEnv();
+      if (!apiKey) {
+        throw new Error('Gemini API key not configured');
+      }
+      geminiClient = new GoogleGenAI({ apiKey });
+
+      stage = 'upload_to_gemini';
+      emitStage(stage);
+      this.logger.log('📤 Uploading video to Gemini File API...');
+      const uploadResult = await geminiClient.files.upload({
+        file: tempFile,
+        config: { mimeType: contentType, displayName: `video-analysis-${Date.now()}` },
+      });
+
+      uploadedFileName = uploadResult.name || null;
+      if (!uploadedFileName) {
+        throw new Error('Gemini file upload returned empty file name');
+      }
+
+      stage = 'wait_processing';
+      emitStage(stage);
+      const deadline = Date.now() + PROCESSING_TIMEOUT_MS;
+      let file = uploadResult;
+      while (file.state === 'PROCESSING') {
+        if (Date.now() > deadline) {
+          throw new ServiceUnavailableException('视频处理超时，请使用更短的视频');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        file = await geminiClient.files.get({ name: uploadedFileName });
+      }
+
+      if (file.state === 'FAILED') {
+        throw new Error('Video processing failed');
+      }
+
+      stage = 'generate_content';
+      emitStage(stage);
+      const prompt = dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息';
+
+      const result = await geminiClient.models.generateContent({
+        model,
+        contents: [
+          { text: prompt },
+          {
+            fileData: {
+              mimeType: file.mimeType,
+              fileUri: file.uri,
+            },
+          },
+        ],
+      });
+
+      const analysisText = result.text || '';
+      const processingTime = Date.now() - startTime;
+      return {
+        analysis: analysisText,
+        text: analysisText,
+        model,
+        provider: 'gemini',
+        processingTime,
+      };
+    } catch (error: any) {
+      const processingTime = Date.now() - startTime;
+      const summary = this.summarizeError(error);
+      this.logger.error(
+        `❌ Video analysis failed at ${stage} after ${processingTime}ms: ${summary}`,
+        error?.stack || summary,
+      );
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      if (this.isLikelyNetworkError(error)) {
+        throw new ServiceUnavailableException(`视频分析失败（${stage}）：${summary}`);
+      }
+      throw new InternalServerErrorException(`视频分析失败（${stage}）：${summary}`);
+    } finally {
+      try {
+        if (tempFile) {
+          const fsp = await import('fs/promises');
+          await fsp.unlink(tempFile);
+        }
+      } catch {}
+
+      try {
+        if (uploadedFileName) {
+          await geminiClient?.files.delete({ name: uploadedFileName });
+        }
+      } catch {}
+    }
+  }
+
   private summarizeError(error: any): string {
     const name = error?.name ? String(error.name) : 'Error';
     const message = error?.message ? String(error.message) : String(error);
@@ -6173,299 +6485,274 @@ export class AiController {
   @Post('analyze-video')
   async analyzeVideo(@Body() dto: AnalyzeVideoDto, @Req() req: any) {
     this.logger.log(`🎥 Video analysis request: ${dto.videoUrl?.substring(0, 50)}...`);
-
-    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveGeminiVideoModel(dto.model);
 
-    return this.withCredits(req, 'gemini-video-analyze', model, async () => {
-      const startTime = Date.now();
-      const MAX_VIDEO_BYTES = 500 * 1024 * 1024; // 500MB
-      const PROCESSING_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+    return this.withCredits(
+      req,
+      'gemini-video-analyze',
+      model,
+      async () => this.runVideoAnalysisPipeline(dto),
+      1,
+      0,
+    );
+  }
 
-      const parsedUrl = this.parseAndValidateAllowedUrl(dto.videoUrl);
+  @Post('analyze-video-async')
+  async analyzeVideoAsync(@Body() dto: AnalyzeVideoDto, @Req() req: any) {
+    this.logger.log(`🎥 Async video analysis request: ${dto.videoUrl?.substring(0, 50)}...`);
 
-      let tempFile: string | null = null;
-      let uploadedFileName: string | null = null;
-      let geminiClient: GoogleGenAI | null = null;
-      let stage = 'download_video';
+    const model = this.resolveGeminiVideoModel(dto.model);
+    const taskId = `async-video-analysis-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    createAsyncTask(taskId);
+    updateAsyncTask(taskId, {
+      result: {
+        status: 'queued',
+        taskId,
+        taskInfo: { stage: 'queued', progress: this.resolveVideoAnalysisProgress('queued') },
+      },
+    });
 
-      try {
-        // 147(Banana) direct video understanding is only used on legacy 147 text route.
-        // For normal/stable routes, always use the unified frame-based pipeline so routing
-        // follows providerOptions + backend supplier settings consistently.
-        const bananaVideoMode =
-          providerName === 'banana' || providerName === 'banana-2.5' || providerName === 'banana-3.1'
-            ? await this.getBananaImageProviderMode(dto.providerOptions)
-            : null;
-        const allow147DirectVideoUnderstanding =
-          bananaVideoMode === 'legacy' || bananaVideoMode === 'legacy_auto';
-
-        if (providerName && providerName !== 'gemini-pro') {
-          if (
-            (providerName === 'banana' ||
-              providerName === 'banana-2.5' ||
-              providerName === 'banana-3.1') &&
-            allow147DirectVideoUnderstanding
-          ) {
-            stage = 'direct_video_understanding';
-            try {
-              const analysisText = await this.analyzeVideoVia147ChatCompletions({
-                model,
-                prompt: dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息',
-                videoUrl: parsedUrl.toString(),
-              });
-              const processingTime = Date.now() - startTime;
-              this.logger.log(
-                `✅ Video analysis (147 direct) completed in ${processingTime}ms`
-              );
-              return {
-                analysis: analysisText,
-                text: analysisText,
-                model,
-                provider: providerName,
-                processingTime,
-              };
-            } catch (err: any) {
-              // 147 直接视频理解失败，不再降级到 ffmpeg 抽帧方案
-              // 因为 ffmpeg 需要服务器安装，不适合云部署环境
-              this.logger.error(
-                `❌ 147 direct video understanding failed: ${this.summarizeError(err)}`
-              );
-              throw err;
-            }
+    const traceContext = this.getTraceContext(req);
+    void this.telemetryService.ingestGenerationTask({
+      traceId: traceContext.traceId || null,
+      parentRequestId: traceContext.parentRequestId || null,
+      taskId,
+      taskType: 'video-analyze',
+      stage: 'queued',
+      userId: this.getUserId(req),
+      provider: dto.aiProvider || 'gemini',
+      prompt: dto.prompt?.slice(0, 500) || null,
+      status: 'queued',
+      metadata: {
+        model,
+        videoUrlHost: (() => {
+          try {
+            return new URL(dto.videoUrl).hostname;
+          } catch {
+            return null;
           }
-        }
+        })(),
+      },
+      receivedAt: new Date().toISOString(),
+    });
 
-        // 从 OSS URL 下载视频（流式写入临时文件，避免大文件占用内存）
-        stage = 'download_video';
-        this.logger.log('📥 Downloading video from OSS...');
-        const videoResponse = await fetch(parsedUrl.toString(), { redirect: 'follow' });
-        if (!videoResponse.ok) {
-          throw new Error(`Failed to download video: HTTP ${videoResponse.status}`);
-        }
-        // 防止跳转到非白名单域名
-        this.parseAndValidateAllowedUrl(videoResponse.url);
-        if (!videoResponse.body) {
-          throw new Error('Empty video response body');
-        }
+    void this.executeVideoAnalysisAsync(taskId, traceContext, req, { ...dto, model }).catch((error) => {
+      this.logger.error(`[Async] Video analysis task ${taskId} failed:`, error);
+    });
 
-        const contentType = videoResponse.headers.get('content-type') || 'video/mp4';
-        const contentLengthHeader = videoResponse.headers.get('content-length');
-        if (contentLengthHeader) {
-          const size = Number(contentLengthHeader);
-          if (Number.isFinite(size) && size > MAX_VIDEO_BYTES) {
-            throw new BadRequestException('视频文件过大，请使用更小的视频');
-          }
-        }
+    return {
+      success: true,
+      taskId,
+      status: 'pending',
+      message: '视频分析任务已提交，请通过 taskId 轮询查询进度',
+    };
+  }
 
-        const os = await import('os');
-        const path = await import('path');
-        const fs = await import('fs');
-        const { pipeline } = await import('stream/promises');
-        const { Readable, Transform } = await import('stream');
+  @Get('analyze-video-task/:taskId')
+  async getAnalyzeVideoTaskStatus(@Param('taskId') taskId: string) {
+    const trimmedTaskId = taskId?.trim();
+    if (!trimmedTaskId) {
+      throw new BadRequestException('taskId 不能为空');
+    }
 
-        const ext = (() => {
-          const map: Record<string, string> = {
-            'video/mp4': '.mp4',
-            'video/quicktime': '.mov',
-            'video/x-msvideo': '.avi',
-            'video/mpeg': '.mpeg',
-            'video/3gpp': '.3gp',
-            'video/x-flv': '.flv',
-          };
-          return map[contentType.split(';')[0].trim().toLowerCase()] || '.mp4';
-        })();
+    const task = getAsyncTaskResult(trimmedTaskId);
+    if (!task) {
+      throw new BadRequestException('视频分析任务不存在或已过期');
+    }
 
-        tempFile = path.join(os.tmpdir(), `video-${Date.now()}${ext}`);
+    if (task.status === 'failed') {
+      return {
+        status: 'failed',
+        error: task.error || '视频分析失败',
+        progress: 100,
+      };
+    }
 
-        let received = 0;
-        const limiter = new Transform({
-          transform(chunk, _enc, cb) {
-            received += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
-            if (received > MAX_VIDEO_BYTES) {
-              cb(new BadRequestException('Video file too large'));
-              return;
-            }
-            cb(null, chunk);
+    if (task.status === 'completed') {
+      return {
+        status: 'succeeded',
+        analysis: task.result?.analysis || task.result?.text || '',
+        text: task.result?.text || task.result?.analysis || '',
+        provider: task.result?.provider,
+        model: task.result?.model,
+        processingTime: task.result?.processingTime,
+        frameCount: task.result?.frameCount,
+        progress: 100,
+      };
+    }
+
+    const stage =
+      typeof task.result?.taskInfo?.stage === 'string' ? task.result.taskInfo.stage : 'processing';
+    const progress =
+      typeof task.result?.taskInfo?.progress === 'number'
+        ? task.result.taskInfo.progress
+        : this.resolveVideoAnalysisProgress(stage);
+
+    return {
+      status: task.status === 'processing' ? 'processing' : 'pending',
+      stage,
+      progress,
+    };
+  }
+
+  private async executeVideoAnalysisAsync(
+    taskId: string,
+    traceContext: PersistedTraceContext,
+    req: any,
+    dto: AnalyzeVideoDto,
+  ): Promise<void> {
+    this.processVideoAnalysisTask(taskId, traceContext, req, dto).catch((error) => {
+      this.logger.error(`[Async] Video analysis task ${taskId} failed:`, error);
+    });
+  }
+
+  private async processVideoAnalysisTask(
+    taskId: string,
+    traceContext: PersistedTraceContext,
+    req: any,
+    dto: AnalyzeVideoDto,
+  ): Promise<void> {
+    let apiUsageId: string | null = null;
+    const model = this.resolveGeminiVideoModel(dto.model);
+
+    await runWithSpan(
+      'video-task.analyze',
+      traceContext,
+      {
+        'app.task.id': taskId,
+        'app.task.type': 'video-analyze',
+        'app.user.id': this.getUserId(req) || 'anonymous',
+        'app.ai.provider': dto.aiProvider || 'gemini',
+      },
+      async () => {
+        updateAsyncTask(taskId, {
+          status: 'processing',
+          result: {
+            status: 'processing',
+            taskId,
+            taskInfo: {
+              stage: 'download_video',
+              progress: this.resolveVideoAnalysisProgress('download_video'),
+            },
           },
         });
+        const startedAt = Date.now();
 
-        await pipeline(
-          Readable.fromWeb(videoResponse.body as any),
-          limiter,
-          fs.createWriteStream(tempFile)
-        );
-
-        this.logger.log(`📦 Video downloaded: ${received} bytes, type: ${contentType}`);
-
-        // 非 Google provider：抽帧 -> 走现有图片分析/文本总结链路（国内可用，如 banana/147）
-        if (providerName && providerName !== 'gemini-pro') {
-          stage = 'extract_frames';
-          const provider = this.factory.getProvider(dto.model, providerName);
-          const maxFrames = 8;
-          const intervalSeconds = 3;
-          this.logger.log(`🖼️ Extracting frames via ffmpeg (maxFrames=${maxFrames}, every ${intervalSeconds}s)...`);
-          const frames = await this.extractFramesAsDataUrls({
-            videoPath: tempFile,
-            maxFrames,
-            intervalSeconds,
-          });
-          if (!frames.length) {
-            throw new ServiceUnavailableException('无法从视频中提取帧，请检查视频文件是否损坏');
-          }
-
-          stage = 'analyze_frames';
-          const visionModel = this.resolveImageModel(providerName, dto.model);
-          const framePrompt =
-            '请描述这一帧画面（场景、人物、动作、字幕/界面元素），尽量客观，不要编造。';
-          const frameAnalyses: string[] = [];
-          for (let i = 0; i < frames.length; i++) {
-            const result = await provider.analyzeImage({
-              prompt: framePrompt,
-              sourceImage: frames[i],
-              model: visionModel,
-              providerOptions: dto.providerOptions,
-            });
-            if (!result.success || !result.data) {
-              throw new ServiceUnavailableException(
-                result.error?.message || 'Failed to analyze extracted frame'
-              );
-            }
-            frameAnalyses.push(result.data.text);
-          }
-
-          stage = 'summarize';
-          const userPrompt =
-            dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息';
-          const summaryPrompt = [
-            '你将获得从同一段视频抽帧得到的多帧描述，请根据这些信息总结整段视频。',
-            `用户分析要求：${userPrompt}`,
-            '抽帧描述：',
-            ...frameAnalyses.map((t, idx) => `${idx + 1}. ${t}`),
-            '请输出：1) 视频整体内容概述 2) 关键场景/动作 3) 可能的时间线(如可推断) 4) 关键信息/字幕(如有)。',
-          ].join('\n');
-
-          const textResult = await provider.generateText({
-            prompt: summaryPrompt,
-            model,
-            providerOptions: dto.providerOptions,
-          });
-          if (!textResult.success || !textResult.data) {
-            throw new ServiceUnavailableException(
-              textResult.error?.message || 'Failed to summarize video frames'
-            );
-          }
-
-          const analysisText = textResult.data.text || '';
-          const processingTime = Date.now() - startTime;
-          this.logger.log(`✅ Video analysis (frame-based) completed in ${processingTime}ms`);
-          return {
-            analysis: analysisText,
-            text: analysisText,
-            model,
-            provider: providerName,
-            processingTime,
-            frameCount: frames.length,
-          };
-        }
-
-        // Google Gemini 路径：上传到 File API 再分析（需要能直连 Google）
-        const apiKey = getGeminiApiKeyFromEnv();
-        if (!apiKey) {
-          throw new Error('Gemini API key not configured');
-        }
-        geminiClient = new GoogleGenAI({ apiKey });
-
-        // 使用 Gemini File API 上传视频
-        stage = 'upload_to_gemini';
-        this.logger.log('📤 Uploading video to Gemini File API...');
-        const uploadResult = await geminiClient.files.upload({
-          file: tempFile,
-          config: { mimeType: contentType, displayName: `video-analysis-${Date.now()}` },
+        void this.telemetryService.ingestGenerationTask({
+          traceId: traceContext.traceId || null,
+          parentRequestId: traceContext.parentRequestId || null,
+          taskId,
+          taskType: 'video-analyze',
+          stage: 'processing',
+          userId: this.getUserId(req),
+          provider: dto.aiProvider || 'gemini',
+          prompt: dto.prompt?.slice(0, 500) || null,
+          status: 'processing',
+          metadata: { model, apiUsageId },
+          receivedAt: new Date().toISOString(),
         });
 
-        uploadedFileName = uploadResult.name || null;
-        if (!uploadedFileName) {
-          throw new Error('Gemini file upload returned empty file name');
-        }
-        this.logger.log(`✅ Video uploaded to Gemini: ${uploadedFileName}`);
-
-        // 等待文件处理完成（带超时）
-        stage = 'wait_processing';
-        const deadline = Date.now() + PROCESSING_TIMEOUT_MS;
-        let file = uploadResult;
-        while (file.state === 'PROCESSING') {
-          if (Date.now() > deadline) {
-            throw new ServiceUnavailableException('视频处理超时，请使用更短的视频');
-          }
-          this.logger.log('⏳ Waiting for video processing...');
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-          file = await geminiClient.files.get({ name: uploadedFileName });
-        }
-
-        if (file.state === 'FAILED') {
-          throw new Error('Video processing failed');
-        }
-
-        // 使用 Gemini 分析视频
-        stage = 'generate_content';
-        const prompt = dto.prompt || '分析这个视频的内容，描述视频中的场景、动作和关键信息';
-
-        this.logger.log('🔍 Analyzing video with Gemini...');
-        const result = await geminiClient.models.generateContent({
-          model,
-          contents: [
-            { text: prompt },
+        try {
+          const result = await this.withCredits(
+            req,
+            'gemini-video-analyze',
+            model,
+            async () =>
+              this.runVideoAnalysisPipeline(dto, {
+                onStageChange: (stage, extra) => {
+                  updateAsyncTask(taskId, {
+                    status: 'processing',
+                    result: {
+                      status: 'processing',
+                      taskId,
+                      frameCount: typeof extra?.frameCount === 'number' ? extra.frameCount : undefined,
+                      taskInfo: {
+                        stage,
+                        progress: this.resolveVideoAnalysisProgress(stage),
+                      },
+                    },
+                  });
+                },
+              }),
+            1,
+            0,
+            undefined,
             {
-              fileData: {
-                mimeType: file.mimeType,
-                fileUri: file.uri,
+              taskId,
+              videoUrl: dto.videoUrl,
+              aiProvider: dto.aiProvider,
+              requestedProvider: dto.aiProvider,
+              model,
+              providerOptions: dto.providerOptions,
+              bananaImageRoute: dto.bananaImageRoute,
+              channelHint: dto.channelHint,
+            },
+            {
+              onApiUsageId: (value) => {
+                apiUsageId = value;
               },
             },
-          ],
-        });
+          );
 
-        const analysisText = result.text || '';
-        const processingTime = Date.now() - startTime;
+          updateAsyncTask(taskId, {
+            status: 'completed',
+            result: {
+              ...result,
+              status: 'completed',
+              taskId,
+              taskInfo: { stage: 'completed', progress: 100 },
+            },
+          });
 
-        this.logger.log(`✅ Video analysis completed in ${processingTime}ms`);
+          void this.telemetryService.ingestGenerationTask({
+            traceId: traceContext.traceId || null,
+            parentRequestId: traceContext.parentRequestId || null,
+            taskId,
+            taskType: 'video-analyze',
+            stage: 'succeeded',
+            userId: this.getUserId(req),
+            provider: dto.aiProvider || 'gemini',
+            prompt: dto.prompt?.slice(0, 500) || null,
+            status: 'completed',
+            durationMs: Date.now() - startedAt,
+            metadata: {
+              apiUsageId,
+              model,
+              frameCount: result.frameCount ?? null,
+            },
+            receivedAt: new Date().toISOString(),
+          });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          updateAsyncTask(taskId, {
+            status: 'failed',
+            error: errorMessage,
+            result: {
+              status: 'failed',
+              taskId,
+              taskInfo: { stage: 'failed', progress: 100 },
+            },
+          });
 
-        return {
-          analysis: analysisText,
-          text: analysisText,
-          model,
-          provider: 'gemini',
-          processingTime,
-        };
-      } catch (error: any) {
-        const processingTime = Date.now() - startTime;
-        const summary = this.summarizeError(error);
-        this.logger.error(
-          `❌ Video analysis failed at ${stage} after ${processingTime}ms: ${summary}`,
-          error?.stack || summary
-        );
-        if (error instanceof HttpException) {
+          void this.telemetryService.ingestGenerationTask({
+            traceId: traceContext.traceId || null,
+            parentRequestId: traceContext.parentRequestId || null,
+            taskId,
+            taskType: 'video-analyze',
+            stage: 'failed',
+            userId: this.getUserId(req),
+            provider: dto.aiProvider || 'gemini',
+            prompt: dto.prompt?.slice(0, 500) || null,
+            status: 'failed',
+            durationMs: Date.now() - startedAt,
+            error: errorMessage,
+            metadata: { apiUsageId, model },
+            receivedAt: new Date().toISOString(),
+          });
           throw error;
         }
-        if (this.isLikelyNetworkError(error)) {
-        throw new ServiceUnavailableException(`视频分析失败（${stage}）：${summary}`);
-      }
-        throw new InternalServerErrorException(`视频分析失败（${stage}）：${summary}`);
-      } finally {
-        try {
-          if (tempFile) {
-            const fsp = await import('fs/promises');
-            await fsp.unlink(tempFile);
-          }
-        } catch {}
-
-        try {
-          if (uploadedFileName) {
-            await geminiClient?.files.delete({ name: uploadedFileName });
-          }
-        } catch {}
-      }
-    }, 1, 0);
+      },
+    );
   }
 
   /**

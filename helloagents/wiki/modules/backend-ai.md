@@ -24,6 +24,7 @@
 - `GET veo/models` / `POST veo/generate`
 - `POST dashscope/generate-wan2-6-*`
 - `POST analyze-video`
+- `POST analyze-video-async` / `GET analyze-video-task/:taskId`
 - `POST minimax-speech` / `POST minimax-music`
 
 ## 注意事项
@@ -47,6 +48,7 @@
 - Seedance 2.0 模式选择会通过 `video_mode` 下发到方舟请求体，确�?`Seedance 2.0` 节点的模式化输入在上游生效�?
 - 异步视频计费为“先扣费 + 后确认”：创建任务后记录保�?`pending`，前端轮询成功调�?`video-task-success` 标记 `success`，失败调�?`video-task-refund` 标记失败并退款�?
 - `convert-2d-to-3d` 已改为异步任务模式：创建接口立即返回 `taskId`，控制器在后台继续执行混元 3D `submit/query` 轮询与 OSS 持久化，前端通过 `/api/ai/convert-2d-to-3d/task/:taskId` 查询状态，避免线上代理在长轮询时返回 `504`。
+- `analyze-video` 现保留同步接口，但前端默认改走异步 `analyze-video-async` 任务模式；后台复用同一套“下载视频 -> 抽帧/上传 -> 分析 -> 总结” pipeline，并通过 `GET /api/ai/analyze-video-task/:taskId` 轮询结果，以规避线上长请求 `504`。
 - `edit-image` / `blend-images` 支持 `sourceImageUrl(s)`，后端会�?OSS 白名单拉取并转换�?dataURL�?
 - Banana 文本链路（`text-chat` / `tool-selection`）支持独立于图像链路的供应商配置�?`banana_text_provider`：`auto`（Apimart�?47）、`legacy_auto`�?47→Apimart）、`apimart`、`legacy`�?
 - Banana 文本�?Apimart 时使�?`https://api.apimart.ai/v1/chat/completions`（OpenAI Chat Completions 兼容格式），鉴权复用 `NANO2_API_KEY`�?

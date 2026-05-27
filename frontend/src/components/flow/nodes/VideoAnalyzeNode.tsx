@@ -22,6 +22,7 @@ type Props = {
     error?: string;
     analysisPrompt?: string;
     text?: string;
+    taskId?: string;
     creditsPerCall?: number;
   };
   selected?: boolean;
@@ -41,6 +42,8 @@ const isDefaultVideoAnalysisPrompt = (value?: string): boolean => {
   const prompt = value?.trim();
   return prompt === VIDEO_ANALYSIS_PROMPT_ZH || prompt === VIDEO_ANALYSIS_PROMPT_EN;
 };
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
@@ -169,7 +172,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
 
       const apiBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') || 'http://localhost:4000';
 
-      const response = await fetchWithAuth(`${apiBase}/api/ai/analyze-video`, {
+      const response = await fetchWithAuth(`${apiBase}/api/ai/analyze-video-async`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -194,20 +197,73 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       }
 
       const result = await response.json();
-      const analysisText = result.analysis || result.text || result.data?.analysis || '';
+      const taskId =
+        typeof result.taskId === 'string' && result.taskId.trim().length > 0
+          ? result.taskId.trim()
+          : '';
+      if (!taskId) {
+        throw new Error(lt('视频分析任务创建失败', 'Failed to create video analysis task'));
+      }
 
       window.dispatchEvent(
         new CustomEvent('flow:updateNodeData', {
           detail: {
             id,
             patch: {
-              status: 'succeeded',
+              taskId,
+              status: 'running',
               error: undefined,
-              prompt: analysisText,
-              text: analysisText,
             },
           },
         }),
+      );
+
+      const startedAt = Date.now();
+      const timeoutMs = 12 * 60 * 1000;
+      while (Date.now() - startedAt < timeoutMs) {
+        await sleep(3000);
+
+        const pollResponse = await fetchWithAuth(
+          `${apiBase}/api/ai/analyze-video-task/${encodeURIComponent(taskId)}`,
+          { method: 'GET' },
+        );
+        const pollResult = await pollResponse.json().catch(() => ({}));
+
+        if (!pollResponse.ok) {
+          throw new Error(pollResult.message || `HTTP ${pollResponse.status}`);
+        }
+
+        if (pollResult.status === 'failed') {
+          throw new Error(
+            pollResult.error ||
+              lt('视频分析失败，请稍后重试', 'Video analysis failed. Please try again later'),
+          );
+        }
+
+        if (pollResult.status === 'succeeded') {
+          const analysisText =
+            pollResult.analysis || pollResult.text || pollResult.data?.analysis || '';
+
+          window.dispatchEvent(
+            new CustomEvent('flow:updateNodeData', {
+              detail: {
+                id,
+                patch: {
+                  status: 'succeeded',
+                  error: undefined,
+                  prompt: analysisText,
+                  text: analysisText,
+                  taskId,
+                },
+              },
+            }),
+          );
+          return;
+        }
+      }
+
+      throw new Error(
+        lt('视频分析轮询超时，请稍后查看结果', 'Video analysis polling timed out'),
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
