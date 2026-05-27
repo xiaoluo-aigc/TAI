@@ -643,3 +643,4 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - Video analysis now has an async `taskId + polling` path to avoid long-request `504`s: backend adds `POST /api/ai/analyze-video-async` and `GET /api/ai/analyze-video-task/:taskId`, both reusing the existing video-analysis pipeline.
 - Frontend `VideoAnalyzeNode` now creates an async task and polls for completion instead of waiting on a single long-running `/api/ai/analyze-video` request.
+- Flow `videoToGif` node now mirrors the upstream project contract more closely: it resolves video URLs from multiple upstream fields, restricts `video` input connections to video-source nodes only, replaces old `video` edges on reconnect, forwards optional `startSeconds` / `durationSeconds`, and reports `flow:run-node` completion via `detail.done(...)` for workflow runs (`frontend/src/components/flow/nodes/VideoToGifNode.tsx`, `frontend/src/components/flow/FlowOverlay.tsx`).

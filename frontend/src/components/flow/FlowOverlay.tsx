@@ -9419,24 +9419,12 @@ function FlowInner() {
       }
       if (targetNode.type === "videoToGif") {
         if (targetHandle === "video") {
-          const allowedVideoSourceTypes = [
-            "video",
-            "sora2Video",
-            "wan26",
-            "wan2R2V",
-            "happyhorseR2V",
-            "wan27Video",
-            "klingVideo",
-            "kling26Video",
-            "klingO1Video",
-            "viduVideo",
-            "viduQ3",
-            "doubaoVideo",
-            "seedance20Video",
-            "genericVideo",
-            "seedanceVideo",
-          ];
-          return allowedVideoSourceTypes.includes(sourceNode.type || "");
+          if (sourceHandle !== "video" && sourceHandle !== "video-out") return false;
+          return (
+            VIDEO_SOURCE_NODE_TYPES.includes(sourceNode.type || "") ||
+            sourceNode.type === "genericVideo" ||
+            sourceNode.type === "seedanceVideo"
+          );
         }
         return false;
       }

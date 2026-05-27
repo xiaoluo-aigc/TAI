@@ -18,3 +18,4 @@
 
 ## 注意事项
 - `allowedPublicHosts()` 内置了部分常见 AI/静态资源域名白名单；是否需要更严格以产品要求为准。
+- `POST /api/video-gif/convert` 走服务端 `ffprobe` + `ffmpeg` pipeline：先校验 `videoUrl` 与 host 白名单，再探测总时长，最后按 `fps` / `width` / `startSeconds` / `durationSeconds` 生成 GIF 并上传 OSS；运行环境必须安装 `ffprobe` 和 `ffmpeg`。

@@ -14,6 +14,8 @@ type Props = {
     gifUrl?: string;
     fps?: number;
     width?: number;
+    startSeconds?: number;
+    durationSeconds?: number;
   };
   selected?: boolean;
 };
@@ -25,6 +27,7 @@ const API_BASE_URL =
 
 const DEFAULT_FPS = 10;
 const DEFAULT_WIDTH = 480;
+const DEFAULT_START_SECONDS = 0;
 
 const sanitizeMediaUrl = (raw?: string | null | undefined): string | undefined => {
   if (!raw || typeof raw !== 'string') return undefined;
@@ -106,6 +109,8 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
 
   const fps = typeof data.fps === 'number' ? data.fps : DEFAULT_FPS;
   const width = typeof data.width === 'number' ? data.width : DEFAULT_WIDTH;
+  const startSeconds = typeof data.startSeconds === 'number' ? data.startSeconds : DEFAULT_START_SECONDS;
+  const durationSeconds = typeof data.durationSeconds === 'number' ? data.durationSeconds : undefined;
 
   const updateNodeData = React.useCallback(
     (patch: Record<string, any>) => {
@@ -122,8 +127,9 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
     const patch: Record<string, any> = {};
     if (typeof data.fps === 'undefined') patch.fps = DEFAULT_FPS;
     if (typeof data.width === 'undefined') patch.width = DEFAULT_WIDTH;
+    if (typeof data.startSeconds === 'undefined') patch.startSeconds = DEFAULT_START_SECONDS;
     if (Object.keys(patch).length > 0) updateNodeData(patch);
-  }, [data.fps, data.width, updateNodeData]);
+  }, [data.fps, data.startSeconds, data.width, updateNodeData]);
 
   const handleConvert = React.useCallback(async () => {
     if (!effectiveVideoUrl) {
@@ -131,22 +137,28 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         status: 'error',
         error: lt('没有可转换的视频输入，请先连接视频节点', 'No video input to convert. Please connect a video node first'),
       });
-      return;
+      return false;
     }
-    if (status === 'converting') return;
+    if (status === 'converting') return false;
 
     updateNodeData({ status: 'converting', error: undefined });
 
     try {
+      const payload: Record<string, any> = {
+        videoUrl: effectiveVideoUrl,
+        projectId: projectId ?? undefined,
+        fps,
+        width,
+        startSeconds,
+      };
+      if (typeof durationSeconds === 'number' && Number.isFinite(durationSeconds)) {
+        payload.durationSeconds = durationSeconds;
+      }
+
       const resp = await fetchWithAuth(`${API_BASE_URL}/video-gif/convert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoUrl: effectiveVideoUrl,
-          projectId: projectId ?? undefined,
-          fps,
-          width,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!resp.ok) {
@@ -165,19 +177,28 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         videoUrl: effectiveVideoUrl,
         gifUrl: result.gifUrl,
       });
+      return true;
     } catch (err: any) {
       updateNodeData({
         status: 'error',
         error: err?.message || lt('视频转 GIF 失败', 'Video to GIF conversion failed'),
       });
+      return false;
     }
-  }, [effectiveVideoUrl, fps, lt, projectId, status, updateNodeData, width]);
+  }, [durationSeconds, effectiveVideoUrl, fps, lt, projectId, startSeconds, status, updateNodeData, width]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ id?: string }>).detail;
+      const detail = (event as CustomEvent<{ id?: string; done?: (result?: boolean) => void }>).detail;
       if (!detail || detail.id !== id) return;
-      void handleConvert();
+      void (async () => {
+        try {
+          const ok = await handleConvert();
+          detail.done?.(ok);
+        } catch {
+          detail.done?.(false);
+        }
+      })();
     };
 
     window.addEventListener('flow:run-node', handler as EventListener);
@@ -330,8 +351,67 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         </label>
       </div>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+        <label style={{ fontSize: 11, color: '#374151' }}>
+          {lt('开始秒数', 'Start(s)')}
+          <input
+            type='number'
+            className='nodrag nopan'
+            value={startSeconds}
+            min={0}
+            max={3600}
+            step={0.1}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              if (Number.isFinite(val) && val >= 0 && val <= 3600) {
+                updateNodeData({ startSeconds: val });
+              }
+            }}
+            style={{
+              marginTop: 4,
+              width: '100%',
+              fontSize: 12,
+              padding: '4px 6px',
+              borderRadius: 4,
+              border: '1px solid #d1d5db',
+            }}
+          />
+        </label>
+
+        <label style={{ fontSize: 11, color: '#374151' }}>
+          {lt('持续秒数', 'Duration(s)')}
+          <input
+            type='number'
+            className='nodrag nopan'
+            value={typeof durationSeconds === 'number' ? durationSeconds : ''}
+            min={0.5}
+            step={0.1}
+            onChange={(e) => {
+              const raw = e.target.value.trim();
+              if (!raw) {
+                updateNodeData({ durationSeconds: undefined });
+                return;
+              }
+              const val = Number(raw);
+              if (Number.isFinite(val) && val >= 0.5) {
+                updateNodeData({ durationSeconds: val });
+              }
+            }}
+            placeholder={lt('默认剩余全段', 'Default: remaining clip')}
+            style={{
+              marginTop: 4,
+              width: '100%',
+              fontSize: 12,
+              padding: '4px 6px',
+              borderRadius: 4,
+              border: '1px solid #d1d5db',
+            }}
+          />
+        </label>
+      </div>
+
       <div style={{ fontSize: 11, color: '#6b7280' }}>
-        {lt('将自动按输入视频时长转换', 'Automatically converts based on input video duration')}
+        {lt('未填持续秒数时，会从开始秒数起转换剩余整段视频', 'If duration is empty, converts the remaining clip from the start time')}
       </div>
 
       {status === 'error' && error && (
