@@ -556,6 +556,15 @@ export const resolveImageToDataUrl = async (
   };
   if (isRemoteUrl(trimmed)) {
     console.log(`[resolveImageToDataUrl] 远程 URL`);
+    if (isAssetProxyRef(trimmed)) {
+      const normalized = normalizePersistableImageRef(trimmed);
+      if (normalized && normalized !== trimmed) {
+        console.log(
+          `[resolveImageToDataUrl] 远程 proxy URL 解包后重试: ${normalized.slice(0, 80)}...`
+        );
+        return await resolveImageToDataUrl(normalized, options);
+      }
+    }
     const preferProxy = options?.preferProxy ?? true;
     if (preferProxy) {
       try {
@@ -577,7 +586,13 @@ export const resolveImageToDataUrl = async (
     addCandidate(trimmed);
   } else if (isAssetProxyRef(trimmed)) {
     console.log(`[resolveImageToDataUrl] asset proxy 引用`);
-    addCandidate(proxifyRemoteAssetUrl(trimmed));
+    // 先把 proxy 引用还原成真实可持久化引用（key 或 remote url）再递归处理，
+    // 避免代理服务异常时，分层/编辑等链路被单点 502 直接打断。
+    const normalized = normalizePersistableImageRef(trimmed);
+    if (normalized && normalized !== trimmed) {
+      return await resolveImageToDataUrl(normalized, options);
+    }
+    addCandidate(proxifyRemoteAssetUrl(trimmed, { forceProxy: true }));
   } else if (isAssetKeyRef(trimmed)) {
     console.log(`[resolveImageToDataUrl] asset key 引用`);
     const withoutLeading = trimmed.replace(/^\/+/, "");
@@ -674,6 +689,12 @@ export const resolveImageToBlob = async (
     if (!candidates.includes(normalized)) candidates.push(normalized);
   };
   if (isRemoteUrl(trimmed)) {
+    if (isAssetProxyRef(trimmed)) {
+      const normalized = normalizePersistableImageRef(trimmed);
+      if (normalized && normalized !== trimmed) {
+        return await resolveImageToBlob(normalized, options);
+      }
+    }
     const preferProxy = options?.preferProxy ?? true;
     if (preferProxy) {
       try {

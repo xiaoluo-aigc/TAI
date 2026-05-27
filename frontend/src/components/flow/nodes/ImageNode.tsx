@@ -3,7 +3,15 @@
 import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
-import { Send as SendIcon, Shield, ShieldCheck, ShieldAlert, Loader2, UserRound } from "lucide-react";
+import {
+  Send as SendIcon,
+  Shield,
+  ShieldCheck,
+  ShieldAlert,
+  Loader2,
+  UserRound,
+  Layers,
+} from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
@@ -35,6 +43,11 @@ import { useVolcAssetPolling } from "@/hooks/useVolcAssetPolling";
 import { useBioAuthPolling } from "@/hooks/useBioAuthPolling";
 import type { BioAuthStatus } from "@/services/bioAuthAPI";
 import { BioAuthModal } from "./BioAuthModal";
+import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
+import aiImageService from "@/services/aiImageService";
+import backgroundRemovalService from "@/services/backgroundRemovalService";
+import { logger } from "@/utils/logger";
+import { splitImageIntoLayers } from "@/utils/imageLayerSplit";
 
 const RESIZE_EDGE_THICKNESS = 8;
 const BIO_AUTH_VALID_DAYS = 30;
@@ -888,10 +901,12 @@ function ImageNodeInner({ id, data, selected }: Props) {
   ]);
 
   const projectId = useProjectContentStore((state) => state.projectId);
+  const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
   const [isResizing, setIsResizing] = React.useState(false);
+  const [isSeparatingLayers, setIsSeparatingLayers] = React.useState(false);
   const updateNodeSize = React.useCallback(
     (width: number, height: number) => {
       const nextWidth = Math.max(1, Math.round(Math.max(width, MIN_WIDTH)));
@@ -1216,50 +1231,35 @@ function ImageNodeInner({ id, data, selected }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [preview]);
 
-  const handleSendToCanvas = React.useCallback(async (event?: React.MouseEvent<HTMLButtonElement>) => {
-    if (!canSend) return;
-    const anchorClient = resolveFlowNodeSendAnchorClient({
-      nodeId: id,
-      triggerTarget: event?.currentTarget ?? null,
-    });
-
-    const makeFileName = () => {
-      const base = resolvedImageName || `flow_${id}_${Date.now()}`;
-      if (/\.(png|jpe?g|webp)$/i.test(base)) return base;
-      return `${base}.png`;
-    };
-
-    const notify = (message: string, type: "success" | "warning" | "error") => {
+  const notifyToast = React.useCallback(
+    (message: string, type: "success" | "warning" | "error" | "info") => {
       window.dispatchEvent(
         new CustomEvent("toast", {
           detail: { message, type },
         })
       );
-    };
+    },
+    []
+  );
 
-    const emitSend = (imageData: string) => {
-      window.dispatchEvent(
-        new CustomEvent("triggerQuickImageUpload", {
-          detail: {
-            imageData,
-            fileName: makeFileName(),
-            operationType: "generate",
-            smartPosition: undefined,
-            anchorClient,
-            forceAnchorPosition: true,
-            sourceImageId: undefined,
-            sourceImages: undefined,
-          },
-        })
-      );
-      notify(lt("图片已发送到画板", "Image sent to canvas"), "success");
-    };
+  const buildOutputFileName = React.useCallback(
+    (suffix?: string) => {
+      const base = resolvedImageName || `flow_${id}_${Date.now()}`;
+      const normalizedBase = base.replace(/\.(png|jpe?g|webp)$/i, "");
+      return `${normalizedBase}${suffix ? `-${suffix}` : ""}.png`;
+    },
+    [id, resolvedImageName]
+  );
 
-    const resolveRenderableToDataUrl = async (value: string): Promise<string | null> => {
+  const resolveRenderableToDataUrl = React.useCallback(
+    async (value: string): Promise<string | null> => {
       const trimmed = value.trim();
       if (!trimmed) return null;
       if (trimmed.startsWith("data:")) return trimmed;
-      if (trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX) || trimmed.startsWith("blob:")) {
+      if (
+        trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX) ||
+        trimmed.startsWith("blob:")
+      ) {
         const blob = await resolveImageToBlob(trimmed, { preferProxy: true });
         if (!blob) return null;
         return await blobToDataUrl(blob);
@@ -1279,9 +1279,30 @@ function ImageNodeInner({ id, data, selected }: Props) {
       const compact = trimmed.replace(/\s+/g, "");
       if (!compact) return null;
       return `data:image/png;base64,${compact}`;
-    };
+    },
+    []
+  );
 
-    const cropImageToDataUrl = async (params: {
+  const resolveRenderableToStrictDataUrl = React.useCallback(
+    async (value: string): Promise<string | null> => {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith("data:")) return trimmed;
+
+      const compact = trimmed.replace(/\s+/g, "");
+      if (compact && /^[A-Za-z0-9+/=]+$/.test(compact)) {
+        return `data:image/png;base64,${compact}`;
+      }
+
+      const blob = await resolveImageToBlob(trimmed, { preferProxy: true });
+      if (!blob) return null;
+      return await blobToDataUrl(blob);
+    },
+    []
+  );
+
+  const cropImageToDataUrl = React.useCallback(
+    async (params: {
       baseRef: string;
       rect: { x: number; y: number; width: number; height: number };
       sourceWidth?: number;
@@ -1297,9 +1318,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
       }
 
       const blob = await resolveImageToBlob(baseRef, { preferProxy: true });
-      if (!blob) return null;
-
-      if (typeof createImageBitmap !== "function") return null;
+      if (!blob || typeof createImageBitmap !== "function") return null;
 
       const bitmap = await createImageBitmapLimited(blob);
       try {
@@ -1335,7 +1354,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
         const canvas =
           typeof OffscreenCanvas !== "undefined"
             ? new OffscreenCanvas(w, h)
-            : Object.assign(document.createElement("canvas"), { width: w, height: h });
+            : Object.assign(document.createElement("canvas"), {
+                width: w,
+                height: h,
+              });
         const ctx = canvas.getContext("2d");
         if (!ctx) return null;
         ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, w, h);
@@ -1346,21 +1368,18 @@ function ImageNodeInner({ id, data, selected }: Props) {
           bitmap.close();
         } catch {}
       }
-    };
+    },
+    []
+  );
 
+  const resolveCurrentImageSource = React.useCallback(async (): Promise<string | null> => {
     if (canvasCrop && cropInfo?.rect && cropBaseRef) {
-      const cropped = await cropImageToDataUrl({
+      return await cropImageToDataUrl({
         baseRef: cropBaseRef,
         rect: cropInfo.rect,
         sourceWidth: cropInfo.sourceWidth,
         sourceHeight: cropInfo.sourceHeight,
       });
-      if (!cropped) {
-        notify(lt("裁剪失败，未发送图片", "Crop failed, image not sent"), "warning");
-        return;
-      }
-      emitSend(cropped);
-      return;
     }
 
     const baseRef =
@@ -1369,29 +1388,172 @@ function ImageNodeInner({ id, data, selected }: Props) {
       displaySrc ||
       fullSrc ||
       "";
-    if (!baseRef) {
-      notify(lt("没有可发送的图片", "No image available to send"), "warning");
-      return;
+    if (!baseRef) return null;
+    return await resolveRenderableToDataUrl(baseRef);
+  }, [
+    canvasCrop,
+    cropBaseRef,
+    cropImageToDataUrl,
+    cropInfo,
+    displaySrc,
+    fullSrc,
+    rawFullValue,
+    rawThumbValue,
+    resolveRenderableToDataUrl,
+  ]);
+
+  const resolveCurrentSplitImageDataUrl = React.useCallback(async (): Promise<string | null> => {
+    if (canvasCrop && cropInfo?.rect && cropBaseRef) {
+      return await cropImageToDataUrl({
+        baseRef: cropBaseRef,
+        rect: cropInfo.rect,
+        sourceWidth: cropInfo.sourceWidth,
+        sourceHeight: cropInfo.sourceHeight,
+      });
     }
 
-    const resolved = await resolveRenderableToDataUrl(baseRef);
+    const baseRef =
+      (typeof rawFullValue === "string" && rawFullValue.trim()) ||
+      (typeof rawThumbValue === "string" && rawThumbValue.trim()) ||
+      displaySrc ||
+      fullSrc ||
+      "";
+    if (!baseRef) return null;
+    return await resolveRenderableToStrictDataUrl(baseRef);
+  }, [
+    canvasCrop,
+    cropBaseRef,
+    cropImageToDataUrl,
+    cropInfo,
+    displaySrc,
+    fullSrc,
+    rawFullValue,
+    rawThumbValue,
+    resolveRenderableToStrictDataUrl,
+  ]);
+
+  const handleSendToCanvas = React.useCallback(async (event?: React.MouseEvent<HTMLButtonElement>) => {
+    if (!canSend) return;
+    const anchorClient = resolveFlowNodeSendAnchorClient({
+      nodeId: id,
+      triggerTarget: event?.currentTarget ?? null,
+    });
+
+    const emitSend = (imageData: string) => {
+      window.dispatchEvent(
+        new CustomEvent("triggerQuickImageUpload", {
+          detail: {
+            imageData,
+            fileName: buildOutputFileName(),
+            operationType: "generate",
+            smartPosition: undefined,
+            anchorClient,
+            forceAnchorPosition: true,
+            sourceImageId: undefined,
+            sourceImages: undefined,
+          },
+        })
+      );
+      notifyToast(lt("图片已发送到画板", "Image sent to canvas"), "success");
+    };
+
+    const resolved = await resolveCurrentImageSource();
     if (!resolved) {
-      notify(lt("没有可发送的图片", "No image available to send"), "warning");
+      notifyToast(lt("没有可发送的图片", "No image available to send"), "warning");
       return;
     }
     emitSend(resolved);
   }, [
+    buildOutputFileName,
     canSend,
-    canvasCrop,
-    cropInfo,
-    cropBaseRef,
-    resolvedImageName,
     id,
-    rawThumbValue,
-    rawFullValue,
-    displaySrc,
-    fullSrc,
+    lt,
+    notifyToast,
+    resolveCurrentImageSource,
   ]);
+
+  const handleLayerSeparation = React.useCallback(
+    async (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (isSeparatingLayers) return;
+
+      const anchorClient = resolveFlowNodeSendAnchorClient({
+        nodeId: id,
+        triggerTarget: event.currentTarget,
+      });
+      const baseImage = await resolveCurrentSplitImageDataUrl();
+      if (!baseImage) {
+        notifyToast(lt("没有可分层的图片", "No image available to split"), "warning");
+        return;
+      }
+
+      setIsSeparatingLayers(true);
+      notifyToast(lt("正在分层...", "Separating layers..."), "info");
+
+      try {
+        const outputs = await splitImageIntoLayers(baseImage, {
+          analyzeImage: aiImageService.analyzeImage.bind(aiImageService),
+          editImage: aiImageService.editImage.bind(aiImageService),
+          removeBackground: backgroundRemovalService.removeBackground.bind(
+            backgroundRemovalService
+          ),
+          getImageModelForProvider,
+          textRecognitionProviderOptions: {
+            banana: { imageRoute: bananaImageRoute },
+            bananaImageRoute,
+          },
+        });
+
+        const batchId = Date.now();
+        const parallelGroupId = `flow_layer_split_${id}_${batchId}`;
+        outputs.forEach((item, index) => {
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: item.imageData,
+                fileName: buildOutputFileName(item.label),
+                operationType: "layer-split",
+                smartPosition: undefined,
+                anchorClient,
+                forceAnchorPosition: true,
+                sourceImageId: id,
+                sourceImages: undefined,
+                preferHorizontal: true,
+                parallelGroupId,
+                parallelGroupIndex: index,
+                parallelGroupTotal: outputs.length,
+              },
+            })
+          );
+        });
+
+        notifyToast(
+          outputs.length >= 4
+            ? lt("分层完成，已生成 4 张结果", "Layer split complete with 4 outputs")
+            : outputs.length >= 2
+            ? lt("分层完成，已生成主体层和背景层", "Layer split complete with subject and background")
+            : lt("分层部分完成，已生成部分结果", "Layer split partially completed"),
+          outputs.length >= 2 ? "success" : "warning"
+        );
+      } catch (error) {
+        logger.error("Flow 图片节点分层失败", error);
+        notifyToast(lt("分层失败，请稍后重试", "Layer split failed. Please try again later"), "error");
+      } finally {
+        setIsSeparatingLayers(false);
+      }
+    },
+    [
+      bananaImageRoute,
+      buildOutputFileName,
+      id,
+      isSeparatingLayers,
+      lt,
+      notifyToast,
+      resolveCurrentSplitImageDataUrl,
+    ]
+  );
 
   const handleFiles = React.useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -1801,6 +1963,31 @@ function ImageNodeInner({ id, data, selected }: Props) {
             }}
           >
             <SendIcon size={14} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            onClick={handleLayerSeparation}
+            disabled={!canSend || isSeparatingLayers}
+            title={
+              isSeparatingLayers
+                ? lt("正在分层...", "Separating layers...")
+                : lt("一键分层", "One-click layer split")
+            }
+            style={{
+              fontSize: 12,
+              padding: "4px 8px",
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: !canSend || isSeparatingLayers ? "#e5e7eb" : "#fff",
+              cursor:
+                !canSend || isSeparatingLayers ? "not-allowed" : "pointer",
+            }}
+          >
+            {isSeparatingLayers ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Layers size={14} />
+            )}
           </button>
           {hasInputConnection && (
             <button
