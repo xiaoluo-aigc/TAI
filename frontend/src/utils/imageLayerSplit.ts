@@ -1,3 +1,12 @@
+import type {
+  AIImageAnalyzeRequest,
+  AIImageEditRequest,
+  AIImageAnalysisResult,
+  AIImageResult,
+  AIServiceResponse,
+  SupportedAIProvider,
+} from "@/types/ai";
+
 export type LayerSplitLabel =
   | "text-layer"
   | "textless-image"
@@ -10,29 +19,12 @@ export type LayerSplitOutput = {
 };
 
 export type SplitImageDeps = {
-  analyzeImage: (args: {
-    prompt: string;
-    sourceImage: string;
-    aiProvider: string;
-    model: string;
-    providerOptions?: Record<string, unknown>;
-  }) => Promise<{
-    success: boolean;
-    data?: { analysis?: string };
-    error?: { message?: string };
-  }>;
-  editImage: (args: {
-    prompt: string;
-    sourceImage: string;
-    model: string;
-    aiProvider: string;
-    outputFormat: "png";
-    imageOnly: true;
-  }) => Promise<{
-    success: boolean;
-    data?: { imageData?: string };
-    error?: { message?: string };
-  }>;
+  analyzeImage: (
+    args: AIImageAnalyzeRequest
+  ) => Promise<AIServiceResponse<AIImageAnalysisResult>>;
+  editImage: (
+    args: AIImageEditRequest
+  ) => Promise<AIServiceResponse<AIImageResult>>;
   removeBackground: (
     imageDataUrl: string,
     mime: string,
@@ -42,14 +34,14 @@ export type SplitImageDeps = {
     imageData?: string;
     error?: string;
   }>;
-  getImageModelForProvider: (provider: string) => string;
+  getImageModelForProvider: (provider: SupportedAIProvider) => string;
   textRecognitionProviderOptions?: Record<string, unknown>;
   log?: (...args: unknown[]) => void;
 };
 
 const TEXT_RECOGNITION_PROMPT =
   '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
-const TEXT_EDIT_PROVIDER = "banana";
+const TEXT_EDIT_PROVIDER: SupportedAIProvider = "banana";
 const TEXT_EDIT_MODEL = "gemini-2.5-flash-image";
 const BG_REMOVAL_MODELS = [
   "gemini-2.5-flash-image",
