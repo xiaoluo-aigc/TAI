@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
+import { Handle, Position, useStore, type ReactFlowState } from 'reactflow';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
@@ -11,6 +11,7 @@ import {
   flowNodeShellChrome,
   useFlowNodeDarkTheme,
 } from './flowNodeDarkTheme';
+import { useImeSafeTextValue } from '../hooks/useImeSafeTextInput';
 
 type Props = {
   id: string;
@@ -32,13 +33,22 @@ const shouldPassWheelToCanvas = (event: { ctrlKey: boolean; metaKey: boolean }) 
   return store.wheelZoomMode === 'direct' ? !isModifierWheel : isModifierWheel;
 };
 
+const VIDEO_ANALYSIS_PROMPT_ZH = '分析这个视频，描述场景、动作和关键信息。';
+const VIDEO_ANALYSIS_PROMPT_EN =
+  'Analyze this video and describe the scenes, actions, and key information.';
+
+const isDefaultVideoAnalysisPrompt = (value?: string): boolean => {
+  const prompt = value?.trim();
+  return prompt === VIDEO_ANALYSIS_PROMPT_ZH || prompt === VIDEO_ANALYSIS_PROMPT_EN;
+};
+
 function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const { lt } = useLocaleText();
   const isFlowDark = useFlowNodeDarkTheme();
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const bananaImageRoute = useAIChatStore((state) => state.bananaImageRoute);
-  const analyzeBananaImageRoute: "normal" | "stable" =
-    bananaImageRoute === "stable" ? "stable" : "normal";
+  const analyzeBananaImageRoute: 'normal' | 'stable' =
+    bananaImageRoute === 'stable' ? 'stable' : 'normal';
   const textModel = React.useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
 
   const { status, error } = data;
@@ -51,8 +61,9 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       (state: ReactFlowState) => {
         const edge = state.edges.find((e) => e.target === id && e.targetHandle === 'video');
         if (!edge) return undefined;
-        const sourceNode = state.getNodes().find((n: Node<any>) => n.id === edge.source);
-        return sourceNode?.data?.videoUrl as string | undefined;
+        const sourceNode = state.getNodes().find((n) => n.id === edge.source);
+        const videoUrl = sourceNode?.data?.videoUrl;
+        return typeof videoUrl === 'string' ? videoUrl : undefined;
       },
       [id],
     ),
@@ -71,14 +82,24 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
   const controlField = flowNodeControlField(isFlowDark);
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
 
-  const defaultAnalysisPrompt = lt(
-    'Analyze this video and describe the scenes, actions, and key information.',
-    'Analyze this video and describe the scenes, actions, and key information.',
-  );
-  const promptInput = data.analysisPrompt ?? defaultAnalysisPrompt;
+  const defaultAnalysisPrompt = lt(VIDEO_ANALYSIS_PROMPT_ZH, VIDEO_ANALYSIS_PROMPT_EN);
+  const storedAnalysisPrompt =
+    typeof data.analysisPrompt === 'string' ? data.analysisPrompt : undefined;
+  const shouldUseLocalizedDefaultPrompt =
+    typeof storedAnalysisPrompt === 'undefined' ||
+    isDefaultVideoAnalysisPrompt(storedAnalysisPrompt);
+  const promptInput = shouldUseLocalizedDefaultPrompt
+    ? defaultAnalysisPrompt
+    : storedAnalysisPrompt;
 
   React.useEffect(() => {
-    if (typeof data.analysisPrompt === 'undefined') {
+    const currentAnalysisPrompt =
+      typeof data.analysisPrompt === 'string' ? data.analysisPrompt : undefined;
+    const shouldSyncLocalizedDefaultPrompt =
+      typeof currentAnalysisPrompt === 'undefined' ||
+      isDefaultVideoAnalysisPrompt(currentAnalysisPrompt);
+
+    if (shouldSyncLocalizedDefaultPrompt && data.analysisPrompt !== defaultAnalysisPrompt) {
       window.dispatchEvent(
         new CustomEvent('flow:updateNodeData', {
           detail: { id, patch: { analysisPrompt: defaultAnalysisPrompt } },
@@ -86,6 +107,19 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       );
     }
   }, [data.analysisPrompt, defaultAnalysisPrompt, id]);
+
+  const commitAnalysisPrompt = React.useCallback(
+    (value: string) => {
+      window.dispatchEvent(
+        new CustomEvent('flow:updateNodeData', {
+          detail: { id, patch: { analysisPrompt: value } },
+        }),
+      );
+    },
+    [id],
+  );
+  const analysisPromptInput = useImeSafeTextValue(promptInput, commitAnalysisPrompt);
+  const analysisPromptDraft = analysisPromptInput.value;
 
   const onAnalyze = React.useCallback(async () => {
     if (!effectiveVideoUrl) {
@@ -96,7 +130,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             patch: {
               status: 'failed',
               error: lt(
-                'No video input to analyze. Please connect a video node first',
+                '没有可分析的视频输入，请先连接视频节点',
                 'No video input to analyze. Please connect a video node first',
               ),
             },
@@ -108,7 +142,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
 
     if (status === 'running' || isAnalyzing) return;
 
-    const promptToUse = (data.analysisPrompt ?? defaultAnalysisPrompt).trim();
+    const promptToUse = analysisPromptDraft.trim();
     if (!promptToUse.length) {
       window.dispatchEvent(
         new CustomEvent('flow:updateNodeData', {
@@ -116,7 +150,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
             id,
             patch: {
               status: 'failed',
-              error: lt('Prompt cannot be empty', 'Prompt cannot be empty'),
+              error: lt('提示词不能为空', 'Prompt cannot be empty'),
             },
           },
         }),
@@ -143,6 +177,8 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           videoUrl: effectiveVideoUrl,
           aiProvider,
           model: textModel,
+          bananaImageRoute: analyzeBananaImageRoute,
+          channelHint: analyzeBananaImageRoute === 'stable' ? 'tencent' : 'apimart',
           providerOptions: {
             banana: {
               imageRoute: analyzeBananaImageRoute,
@@ -173,8 +209,8 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           },
         }),
       );
-    } catch (err: any) {
-      const msg = err?.message || String(err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       window.dispatchEvent(
         new CustomEvent('flow:updateNodeData', {
           detail: { id, patch: { status: 'failed', error: msg, prompt: '', text: '' } },
@@ -183,7 +219,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [aiProvider, analyzeBananaImageRoute, data.analysisPrompt, defaultAnalysisPrompt, effectiveVideoUrl, id, isAnalyzing, lt, status, textModel]);
+  }, [aiProvider, analysisPromptDraft, analyzeBananaImageRoute, effectiveVideoUrl, id, isAnalyzing, lt, status, textModel]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -202,17 +238,6 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     window.addEventListener('flow:run-node', handler as EventListener);
     return () => window.removeEventListener('flow:run-node', handler as EventListener);
   }, [id, onAnalyze]);
-
-  const onPromptChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      window.dispatchEvent(
-        new CustomEvent('flow:updateNodeData', {
-          detail: { id, patch: { analysisPrompt: event.target.value } },
-        }),
-      );
-    },
-    [id],
-  );
 
   const canRun = !!effectiveVideoUrl && status !== 'running' && !isAnalyzing;
 
@@ -234,30 +259,20 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 600, color: shell.color }}>Video Analysis</div>
+        <div style={{ fontWeight: 600, color: shell.color }}>{lt('视频分析', 'Video Analysis')}</div>
         <button
-          className="run-btn-with-credit"
+          className="tanva-video-analyze-run-btn run-btn-with-credit"
           onClick={onAnalyze}
           disabled={!canRun}
           style={{
-            fontSize: 12,
-            padding: '4px 8px',
-            background: canRun ? '#111827' : '#e5e7eb',
-            color: canRun ? '#fff' : '#9ca3af',
-            borderRadius: 6,
-            border: 'none',
             cursor: canRun ? 'pointer' : 'not-allowed',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 0,
           }}
         >
           {status === 'running' || isAnalyzing ? (
-            <span className="run-text-trigger">{lt('Analyzing...', 'Analyzing...')}</span>
+            <span className="run-text-trigger">{lt('分析中...', 'Analyzing...')}</span>
           ) : (
             <>
-              <span className="run-text-trigger">{lt('Analyze', 'Analyze')}</span>
+              <span className="run-text-trigger">{lt('分析', 'Analyze')}</span>
               {hasRunCredits ? <RunCreditBadge credits={data.creditsPerCall} runButton /> : null}
             </>
           )}
@@ -287,26 +302,28 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
         ) : (
           <span style={{ fontSize: 12, color: '#9ca3af' }}>
             {hasVideoConnection
-              ? lt('Waiting for video input', 'Waiting for video input')
-              : lt('Please connect a video node', 'Please connect a video node')}
+              ? lt('等待视频输入', 'Waiting for video input')
+              : lt('请连接视频节点', 'Please connect a video node')}
           </span>
         )}
       </div>
 
       <div>
         <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: shell.color }}>
-          {lt('Analysis prompt', 'Analysis prompt')}
+          {lt('分析提示词', 'Analysis prompt')}
         </div>
         <textarea
           className="nodrag nopan nowheel"
-          value={promptInput}
-          onChange={onPromptChange}
+          value={analysisPromptInput.value}
+          onChange={analysisPromptInput.onChange}
+          onCompositionStart={analysisPromptInput.onCompositionStart}
+          onCompositionEnd={analysisPromptInput.onCompositionEnd}
           onWheelCapture={(event) => {
             if (shouldPassWheelToCanvas(event)) return;
             event.stopPropagation();
           }}
           onPointerDownCapture={(e) => e.stopPropagation()}
-          placeholder={lt('Enter analysis prompt', 'Enter analysis prompt')}
+          placeholder={lt('输入分析提示词', 'Enter analysis prompt')}
           style={{
             width: '100%',
             minHeight: 60,
@@ -339,7 +356,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
           data.prompt || data.text
         ) : (
           <span style={{ color: '#9ca3af' }}>
-            {lt('Analysis result will appear here', 'Analysis result will appear here')}
+            {lt('分析结果将显示在这里', 'Analysis result will appear here')}
           </span>
         )}
       </div>

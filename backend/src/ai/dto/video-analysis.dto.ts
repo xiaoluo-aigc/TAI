@@ -15,7 +15,24 @@ export class AnalyzeVideoDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'banana-3.1' | 'runninghub' | 'midjourney';
+  aiProvider?:
+    | 'gemini'
+    | 'gemini-pro'
+    | 'banana'
+    | 'banana-2.5'
+    | 'banana-3.1'
+    | 'runninghub'
+    | 'midjourney'
+    | 'nano2'
+    | 'seedream5';
+
+  @IsOptional()
+  @IsString()
+  bananaImageRoute?: 'normal' | 'stable';
+
+  @IsOptional()
+  @IsString()
+  channelHint?: string;
 
   @IsOptional()
   @IsObject()
