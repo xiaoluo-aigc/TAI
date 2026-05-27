@@ -12,6 +12,9 @@ type Props = {
     error?: string;
     videoUrl?: string;
     gifUrl?: string;
+    taskId?: string;
+    progress?: number;
+    stage?: string;
     fps?: number;
     width?: number;
     startSeconds?: number;
@@ -28,6 +31,8 @@ const API_BASE_URL =
 const DEFAULT_FPS = 10;
 const DEFAULT_WIDTH = 480;
 const DEFAULT_START_SECONDS = 0;
+const GIF_TASK_POLL_INTERVAL_MS = 3000;
+const GIF_TASK_TIMEOUT_MS = 12 * 60 * 1000;
 
 const sanitizeMediaUrl = (raw?: string | null | undefined): string | undefined => {
   if (!raw || typeof raw !== 'string') return undefined;
@@ -101,6 +106,8 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
   const status = data.status ?? 'idle';
   const error = data.error;
   const gifUrl = data.gifUrl;
+  const progress = typeof data.progress === 'number' ? data.progress : undefined;
+  const stage = typeof data.stage === 'string' ? data.stage : undefined;
 
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected
@@ -155,7 +162,7 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
         payload.durationSeconds = durationSeconds;
       }
 
-      const resp = await fetchWithAuth(`${API_BASE_URL}/video-gif/convert`, {
+      const resp = await fetchWithAuth(`${API_BASE_URL}/video-gif/convert-async`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -167,21 +174,74 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
       }
 
       const result = await resp.json().catch(() => ({}));
-      if (!result?.gifUrl) {
-        throw new Error(lt('未返回 GIF 链接', 'No GIF URL returned'));
+      const taskId =
+        typeof result?.taskId === 'string' && result.taskId.trim().length > 0
+          ? result.taskId.trim()
+          : '';
+      if (!taskId) {
+        throw new Error(lt('未返回任务 ID', 'No task ID returned'));
       }
 
       updateNodeData({
-        status: 'ready',
+        status: 'converting',
         error: undefined,
-        videoUrl: effectiveVideoUrl,
-        gifUrl: result.gifUrl,
+        taskId,
+        progress: 0,
+        stage: 'queued',
       });
-      return true;
+
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < GIF_TASK_TIMEOUT_MS) {
+        await new Promise((resolve) => window.setTimeout(resolve, GIF_TASK_POLL_INTERVAL_MS));
+
+        const pollResp = await fetchWithAuth(
+          `${API_BASE_URL}/video-gif/task/${encodeURIComponent(taskId)}`,
+          { method: 'GET' },
+        );
+        const pollResult = await pollResp.json().catch(() => ({}));
+
+        if (!pollResp.ok) {
+          throw new Error(pollResult?.message || `HTTP ${pollResp.status}`);
+        }
+
+        if (pollResult?.status === 'failed') {
+          throw new Error(
+            pollResult?.error || lt('视频转 GIF 失败，请稍后重试', 'Video to GIF failed. Please try again later'),
+          );
+        }
+
+        if (pollResult?.status === 'succeeded') {
+          if (!pollResult?.gifUrl) {
+            throw new Error(lt('未返回 GIF 链接', 'No GIF URL returned'));
+          }
+          updateNodeData({
+            status: 'ready',
+            error: undefined,
+            videoUrl: effectiveVideoUrl,
+            gifUrl: pollResult.gifUrl,
+            taskId,
+            progress: 100,
+            stage: 'completed',
+          });
+          return true;
+        }
+
+        updateNodeData({
+          status: 'converting',
+          error: undefined,
+          taskId,
+          progress: typeof pollResult?.progress === 'number' ? pollResult.progress : undefined,
+          stage: typeof pollResult?.stage === 'string' ? pollResult.stage : undefined,
+        });
+      }
+
+      throw new Error(lt('视频转 GIF 轮询超时，请稍后查看结果', 'Video to GIF polling timed out'));
     } catch (err: any) {
       updateNodeData({
         status: 'error',
         error: err?.message || lt('视频转 GIF 失败', 'Video to GIF conversion failed'),
+        progress: undefined,
+        stage: undefined,
       });
       return false;
     }
@@ -413,6 +473,13 @@ function VideoToGifNodeInner({ id, data, selected = false }: Props) {
       <div style={{ fontSize: 11, color: '#6b7280' }}>
         {lt('未填持续秒数时，会从开始秒数起转换剩余整段视频', 'If duration is empty, converts the remaining clip from the start time')}
       </div>
+
+      {status === 'converting' && (
+        <div style={{ fontSize: 11, color: '#6b7280' }}>
+          {progress ? `${lt('处理中', 'Processing')} ${progress}%` : lt('任务已提交，正在后台转换', 'Task submitted and converting in background')}
+          {stage ? ` · ${stage}` : ''}
+        </div>
+      )}
 
       {status === 'error' && error && (
         <div

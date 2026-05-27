@@ -3,6 +3,8 @@ import {
   BadRequestException,
   Controller,
   Post,
+  Get,
+  Param,
   Body,
   UseGuards,
   ServiceUnavailableException,
@@ -20,6 +22,11 @@ import { OssService } from './oss.service';
 import { CreditsService } from '../credits/credits.service';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { ServiceType } from '../credits/credits.config';
+import {
+  createAsyncTask,
+  getAsyncTaskResult,
+  updateAsyncTask,
+} from '../ai/services/async-video-task.store';
 
 type ConvertVideoToGifDto = {
   videoUrl: string;
@@ -59,109 +66,9 @@ export class VideoGifController {
     fps: number;
     width: number;
   }> {
-    const videoUrl = this.parseAndValidateVideoUrl(dto.videoUrl);
-
-    const startSeconds = this.clampNumber(dto.startSeconds, 0, 3600, 0);
-    const fps = Math.round(this.clampNumber(dto.fps, MIN_FPS, MAX_FPS, 10));
-    const width = Math.round(this.clampNumber(dto.width, MIN_WIDTH, MAX_WIDTH, 480));
-    const userId = this.getUserId(req);
-    const idempotencyKey = this.extractIdempotencyKey(req);
-    const serviceType: ServiceType = 'video-to-gif';
-    const startTime = Date.now();
-    let apiUsageId: string | null = null;
-    let tempDir: string | null = null;
-
-    if (!userId) {
-      throw new BadRequestException('需要用户认证');
-    }
-
     try {
-      await this.creditsService.getOrCreateAccount(userId);
-
-      const deductResult = await this.creditsService.preDeductCredits({
-        userId,
-        serviceType,
-        model: 'ffmpeg-gif',
-        outputImageCount: 1,
-        requestParams: {
-          fps,
-          width,
-          startSeconds,
-          durationSeconds: dto.durationSeconds,
-        },
-        ipAddress: req?.ip,
-        userAgent: req?.headers?.['user-agent'],
-        idempotencyKey,
-      });
-      apiUsageId = deductResult.apiUsageId;
-
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'video-gif-'));
-
-      const duration = await this.getVideoDuration(videoUrl);
-      if (!duration || duration <= 0) {
-        throw new BadRequestException('Cannot get video duration');
-      }
-
-      if (startSeconds >= duration) {
-        throw new BadRequestException('startSeconds must be less than video duration');
-      }
-
-      const remainingDuration = Math.max(0.5, duration - startSeconds);
-      const durationSeconds = Number.isFinite(dto.durationSeconds as number)
-        ? this.clampNumber(dto.durationSeconds, 0.5, remainingDuration, remainingDuration)
-        : remainingDuration;
-
-      const outputPath = path.join(tempDir, 'output.gif');
-      await this.convertWithFfmpeg({
-        videoUrl,
-        outputPath,
-        startSeconds,
-        durationSeconds,
-        fps,
-        width,
-      });
-
-      const key = this.buildOutputKey(dto.projectId);
-      const buffer = await fs.readFile(outputPath);
-      const { Readable } = await import('stream');
-      const stream = Readable.from(buffer);
-
-      const { url, key: uploadedKey } = await this.oss.putStream(key, stream, {
-        headers: { 'Content-Type': 'image/gif' },
-      });
-
-      if (apiUsageId) {
-        try {
-          await this.creditsService.updateApiUsageStatus(
-            apiUsageId,
-            ApiResponseStatus.SUCCESS,
-            undefined,
-            Date.now() - startTime,
-          );
-        } catch (statusError) {
-          this.logger.warn(
-            `Failed to mark video-to-gif api usage success: ${
-              statusError instanceof Error ? statusError.message : String(statusError)
-            }`,
-          );
-        }
-      }
-
-      return {
-        success: true,
-        gifUrl: url,
-        gifKey: uploadedKey,
-        duration,
-        startSeconds,
-        durationSeconds,
-        fps,
-        width,
-      };
+      return await this.runConvertJob(dto, req);
     } catch (err: any) {
-      if (apiUsageId) {
-        await this.failAndRefund(userId, apiUsageId, err?.message || 'Video to GIF conversion failed', Date.now() - startTime);
-      }
-
       const message = err?.message || 'Video to GIF conversion failed';
       if (message.includes('ffmpeg not installed') || message.includes('ffprobe not installed')) {
         throw new ServiceUnavailableException(message);
@@ -170,11 +77,112 @@ export class VideoGifController {
         throw err;
       }
       throw new BadGatewayException(message);
-    } finally {
-      if (tempDir) {
-        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      }
     }
+  }
+
+  @Post('convert-async')
+  @ApiOperation({ summary: 'Create async video-to-GIF task' })
+  @ApiCookieAuth('access_token')
+  @UseGuards(JwtAuthGuard)
+  async convertAsync(@Body() dto: ConvertVideoToGifDto, @Req() req: any): Promise<{
+    success: boolean;
+    taskId: string;
+    status: 'pending';
+    message: string;
+  }> {
+    const normalized = this.normalizeConvertRequest(dto);
+    const userId = this.getUserId(req);
+    if (!userId) {
+      throw new BadRequestException('需要用户认证');
+    }
+
+    await this.creditsService.getOrCreateAccount(userId);
+    const idempotencyKey = this.extractIdempotencyKey(req);
+    const deductResult = await this.creditsService.preDeductCredits({
+      userId,
+      serviceType: 'video-to-gif',
+      model: 'ffmpeg-gif',
+      outputImageCount: 1,
+      requestParams: {
+        fps: normalized.fps,
+        width: normalized.width,
+        startSeconds: normalized.startSeconds,
+        durationSeconds: normalized.requestedDurationSeconds,
+      },
+      ipAddress: req?.ip,
+      userAgent: req?.headers?.['user-agent'],
+      idempotencyKey,
+    });
+
+    const taskId = `async-video-gif-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    createAsyncTask(taskId);
+    updateAsyncTask(taskId, {
+      result: {
+        status: 'queued',
+        taskId,
+        taskInfo: { stage: 'queued', progress: 0 },
+      },
+    });
+
+    void this.processAsyncConvertTask(taskId, dto, req, userId, deductResult.apiUsageId).catch((error) => {
+      this.logger.error(
+        `[Async] Video GIF task ${taskId} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+
+    return {
+      success: true,
+      taskId,
+      status: 'pending',
+      message: '视频转 GIF 任务已提交，请通过 taskId 轮询查询进度',
+    };
+  }
+
+  @Get('task/:taskId')
+  @ApiOperation({ summary: 'Get async video-to-GIF task status' })
+  @ApiCookieAuth('access_token')
+  @UseGuards(JwtAuthGuard)
+  async getTaskStatus(@Param('taskId') rawTaskId: string): Promise<any> {
+    const taskId = typeof rawTaskId === 'string' ? rawTaskId.trim() : '';
+    if (!taskId) {
+      throw new BadRequestException('taskId 不能为空');
+    }
+
+    const task = getAsyncTaskResult(taskId);
+    if (!task) {
+      throw new BadRequestException('视频转 GIF 任务不存在或已过期');
+    }
+
+    if (task.status === 'failed') {
+      return {
+        status: 'failed',
+        error: task.error || '视频转 GIF 失败',
+        stage: task.result?.taskInfo?.stage || 'failed',
+        progress: typeof task.result?.taskInfo?.progress === 'number' ? task.result.taskInfo.progress : 100,
+      };
+    }
+
+    if (task.status === 'completed') {
+      return {
+        status: 'succeeded',
+        gifUrl: task.result?.gifUrl,
+        gifKey: task.result?.gifKey,
+        duration: task.result?.taskInfo?.duration,
+        startSeconds: task.result?.taskInfo?.startSeconds,
+        durationSeconds: task.result?.taskInfo?.durationSeconds,
+        fps: task.result?.taskInfo?.fps,
+        width: task.result?.taskInfo?.width,
+        progress: 100,
+      };
+    }
+
+    return {
+      status: task.status === 'processing' ? 'processing' : 'pending',
+      stage: task.result?.taskInfo?.stage || 'queued',
+      progress: typeof task.result?.taskInfo?.progress === 'number' ? task.result.taskInfo.progress : 0,
+    };
   }
 
   private getUserId(req: any): string | null {
@@ -296,6 +304,257 @@ export class VideoGifController {
   ): number {
     if (!Number.isFinite(value as number)) return fallback;
     return Math.min(max, Math.max(min, Number(value)));
+  }
+
+  private normalizeConvertRequest(dto: ConvertVideoToGifDto): {
+    videoUrl: string;
+    projectId?: string;
+    startSeconds: number;
+    fps: number;
+    width: number;
+    requestedDurationSeconds?: number;
+  } {
+    return {
+      videoUrl: this.parseAndValidateVideoUrl(dto.videoUrl),
+      projectId: dto.projectId,
+      startSeconds: this.clampNumber(dto.startSeconds, 0, 3600, 0),
+      fps: Math.round(this.clampNumber(dto.fps, MIN_FPS, MAX_FPS, 10)),
+      width: Math.round(this.clampNumber(dto.width, MIN_WIDTH, MAX_WIDTH, 480)),
+      requestedDurationSeconds: Number.isFinite(dto.durationSeconds as number)
+        ? Number(dto.durationSeconds)
+        : undefined,
+    };
+  }
+
+  private async runConvertJob(
+    dto: ConvertVideoToGifDto,
+    req: any,
+    options?: {
+      userId?: string;
+      apiUsageId?: string | null;
+      onStageChange?: (stage: string, progress: number, extra?: Record<string, any>) => void;
+      skipPreDeduct?: boolean;
+    },
+  ): Promise<{
+    success: boolean;
+    gifUrl: string;
+    gifKey: string;
+    duration: number;
+    startSeconds: number;
+    durationSeconds: number;
+    fps: number;
+    width: number;
+  }> {
+    const normalized = this.normalizeConvertRequest(dto);
+    const userId = options?.userId ?? this.getUserId(req);
+    const serviceType: ServiceType = 'video-to-gif';
+    const startTime = Date.now();
+    let apiUsageId: string | null = options?.apiUsageId ?? null;
+    let tempDir: string | null = null;
+
+    if (!userId) {
+      throw new BadRequestException('需要用户认证');
+    }
+
+    try {
+      if (!options?.skipPreDeduct) {
+        await this.creditsService.getOrCreateAccount(userId);
+        const deductResult = await this.creditsService.preDeductCredits({
+          userId,
+          serviceType,
+          model: 'ffmpeg-gif',
+          outputImageCount: 1,
+          requestParams: {
+            fps: normalized.fps,
+            width: normalized.width,
+            startSeconds: normalized.startSeconds,
+            durationSeconds: normalized.requestedDurationSeconds,
+          },
+          ipAddress: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          idempotencyKey: this.extractIdempotencyKey(req),
+        });
+        apiUsageId = deductResult.apiUsageId;
+      }
+
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'video-gif-'));
+
+      options?.onStageChange?.('probing_duration', 15);
+      const duration = await this.getVideoDuration(normalized.videoUrl);
+      if (!duration || duration <= 0) {
+        throw new BadRequestException('Cannot get video duration');
+      }
+
+      if (normalized.startSeconds >= duration) {
+        throw new BadRequestException('startSeconds must be less than video duration');
+      }
+
+      const remainingDuration = Math.max(0.5, duration - normalized.startSeconds);
+      const durationSeconds = Number.isFinite(normalized.requestedDurationSeconds as number)
+        ? this.clampNumber(normalized.requestedDurationSeconds, 0.5, remainingDuration, remainingDuration)
+        : remainingDuration;
+
+      const outputPath = path.join(tempDir, 'output.gif');
+      options?.onStageChange?.('converting_gif', 55, {
+        duration,
+        durationSeconds,
+        startSeconds: normalized.startSeconds,
+        fps: normalized.fps,
+        width: normalized.width,
+      });
+      await this.convertWithFfmpeg({
+        videoUrl: normalized.videoUrl,
+        outputPath,
+        startSeconds: normalized.startSeconds,
+        durationSeconds,
+        fps: normalized.fps,
+        width: normalized.width,
+      });
+
+      options?.onStageChange?.('uploading_gif', 85, {
+        duration,
+        durationSeconds,
+        startSeconds: normalized.startSeconds,
+        fps: normalized.fps,
+        width: normalized.width,
+      });
+      const key = this.buildOutputKey(normalized.projectId);
+      const buffer = await fs.readFile(outputPath);
+      const { Readable } = await import('stream');
+      const stream = Readable.from(buffer);
+
+      const { url, key: uploadedKey } = await this.oss.putStream(key, stream, {
+        headers: { 'Content-Type': 'image/gif' },
+      });
+
+      if (apiUsageId) {
+        try {
+          await this.creditsService.updateApiUsageStatus(
+            apiUsageId,
+            ApiResponseStatus.SUCCESS,
+            undefined,
+            Date.now() - startTime,
+          );
+        } catch (statusError) {
+          this.logger.warn(
+            `Failed to mark video-to-gif api usage success: ${
+              statusError instanceof Error ? statusError.message : String(statusError)
+            }`,
+          );
+        }
+      }
+
+      options?.onStageChange?.('completed', 100, {
+        duration,
+        durationSeconds,
+        startSeconds: normalized.startSeconds,
+        fps: normalized.fps,
+        width: normalized.width,
+        gifUrl: url,
+        gifKey: uploadedKey,
+      });
+
+      return {
+        success: true,
+        gifUrl: url,
+        gifKey: uploadedKey,
+        duration,
+        startSeconds: normalized.startSeconds,
+        durationSeconds,
+        fps: normalized.fps,
+        width: normalized.width,
+      };
+    } catch (err: any) {
+      if (apiUsageId) {
+        await this.failAndRefund(
+          userId,
+          apiUsageId,
+          err?.message || 'Video to GIF conversion failed',
+          Date.now() - startTime,
+        );
+      }
+      throw err;
+    } finally {
+      if (tempDir) {
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+  }
+
+  private async processAsyncConvertTask(
+    taskId: string,
+    dto: ConvertVideoToGifDto,
+    req: any,
+    userId: string,
+    apiUsageId: string,
+  ): Promise<void> {
+    updateAsyncTask(taskId, {
+      status: 'processing',
+      result: {
+        status: 'processing',
+        taskId,
+        taskInfo: { stage: 'queued', progress: 0 },
+      },
+    });
+
+    try {
+      const result = await this.runConvertJob(dto, req, {
+        userId,
+        apiUsageId,
+        skipPreDeduct: true,
+        onStageChange: (stage, progress, extra) => {
+          updateAsyncTask(taskId, {
+            status: stage === 'completed' ? 'completed' : 'processing',
+            result: {
+              status: stage === 'completed' ? 'completed' : 'processing',
+              taskId,
+              gifUrl: typeof extra?.gifUrl === 'string' ? extra.gifUrl : undefined,
+              gifKey: typeof extra?.gifKey === 'string' ? extra.gifKey : undefined,
+              taskInfo: {
+                stage,
+                progress,
+                duration: extra?.duration,
+                startSeconds: extra?.startSeconds,
+                durationSeconds: extra?.durationSeconds,
+                fps: extra?.fps,
+                width: extra?.width,
+              },
+            },
+          });
+        },
+      });
+
+      updateAsyncTask(taskId, {
+        status: 'completed',
+        result: {
+          status: 'completed',
+          taskId,
+          gifUrl: result.gifUrl,
+          gifKey: result.gifKey,
+          taskInfo: {
+            stage: 'completed',
+            progress: 100,
+            duration: result.duration,
+            startSeconds: result.startSeconds,
+            durationSeconds: result.durationSeconds,
+            fps: result.fps,
+            width: result.width,
+          },
+        },
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      updateAsyncTask(taskId, {
+        status: 'failed',
+        error: errorMessage,
+        result: {
+          status: 'failed',
+          taskId,
+          taskInfo: { stage: 'failed', progress: 100 },
+        },
+      });
+      throw error;
+    }
   }
 
   private getVideoDuration(videoUrl: string): Promise<number> {

@@ -16,6 +16,8 @@ export interface AsyncTaskResult {
     processingTime?: number;
     provider?: string;
     model?: string;
+    gifUrl?: string;
+    gifKey?: string;
     promptId?: string;
     content?: string;
     referencedUrls?: string[];

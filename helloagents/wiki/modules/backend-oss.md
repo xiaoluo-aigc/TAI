@@ -18,4 +18,6 @@
 
 ## 注意事项
 - `allowedPublicHosts()` 内置了部分常见 AI/静态资源域名白名单；是否需要更严格以产品要求为准。
-- `POST /api/video-gif/convert` 走服务端 `ffprobe` + `ffmpeg` pipeline：先校验 `videoUrl` 与 host 白名单，再探测总时长，最后按 `fps` / `width` / `startSeconds` / `durationSeconds` 生成 GIF 并上传 OSS；运行环境必须安装 `ffprobe` 和 `ffmpeg`。
+- `POST /api/video-gif/convert` 保留同步转换；线上默认更适合走 `POST /api/video-gif/convert-async` + `GET /api/video-gif/task/:taskId`，避免长时间 `ffprobe` / `ffmpeg` / OSS 上传占用请求导致 `504`。
+- `video-gif` 转换链路走服务端 `ffprobe` + `ffmpeg` pipeline：先校验 `videoUrl` 与 host 白名单，再探测总时长，最后按 `fps` / `width` / `startSeconds` / `durationSeconds` 生成 GIF 并上传 OSS；运行环境必须安装 `ffprobe` 和 `ffmpeg`。
+- 当前异步任务状态存储是进程内内存 Map，服务重启后未完成任务会丢失；如果后续要做更稳的线上方案，建议迁到 Redis / DB。
