@@ -1982,6 +1982,7 @@ export class VideoProviderService {
             type: "Url" as const,
             category: "Video" as const,
             url: normalizedReferenceVideo,
+            usage: "Reference" as const,
             referenceType: normalizedReferenceVideoType,
             keepOriginalSound: normalizedKeepOriginalSound,
           },
