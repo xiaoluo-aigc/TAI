@@ -66,6 +66,10 @@ const EXPAND_PRESET_PROMPT =
   "请智能填充图像中的黑色区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
 const TEXT_RECOGNITION_PROMPT =
   '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
+const HD_UPSCALE_MODEL = "gemini-3-pro-image-preview";
+const HD_UPSCALE_PROVIDER = "banana";
+const HD_UPSCALE_PROMPT =
+  "请将这张图片进行高清放大处理，提升分辨率到4K级别，保持原图的所有细节、颜色、构图和风格完全不变，只增强清晰度和分辨率，不要添加或修改任何内容。必须保持原始宽高比，禁止裁切、补边、拉伸、透视变化或改动构图。";
 
 type TextReplacementItem = {
   id: string;
@@ -1405,6 +1409,80 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     projectId,
     resolveRenderedImageDataUrl,
   ]);
+
+  const resolveHdUpscaleSourceImageDataUrl = useCallback(
+    async (): Promise<string | null> => {
+      const ensureDataUrl = async (
+        input: string | null
+      ): Promise<string | null> => {
+        if (!input) return null;
+        return resolveImageToDataUrl(input, { preferProxy: true });
+      };
+
+      const preferredSources = [
+        getImageDataForEditing?.(imageData.id) || null,
+        imageData.remoteUrl || null,
+        imageData.url || null,
+        imageData.key || null,
+        imageData.src || null,
+        imageData.pendingUpload ? imageData.localDataUrl || null : null,
+      ];
+
+      for (const source of preferredSources) {
+        const dataUrl = await ensureDataUrl(source);
+        if (!dataUrl) continue;
+        void imageUrlCache.updateDataUrl(
+          imageData.id,
+          dataUrl,
+          projectId,
+          buildImageSourceFingerprint(source)
+        );
+        return dataUrl;
+      }
+
+      for (const source of preferredSources) {
+        const fingerprint = buildImageSourceFingerprint(source);
+        if (!fingerprint) continue;
+        const cachedDataUrl = await imageUrlCache.getCachedDataUrl(
+          imageData.id,
+          projectId,
+          fingerprint
+        );
+        if (cachedDataUrl) {
+          return cachedDataUrl;
+        }
+      }
+
+      console.warn("⚠️ 高清放大未找到可编辑原图，尝试从当前渲染图像抓取");
+      const renderedDataUrl = await resolveRenderedImageDataUrl();
+      if (!renderedDataUrl) {
+        return null;
+      }
+
+      const normalizedRenderedDataUrl = await ensureDataUrl(renderedDataUrl);
+      if (normalizedRenderedDataUrl) {
+        void imageUrlCache.updateDataUrl(
+          imageData.id,
+          normalizedRenderedDataUrl,
+          projectId,
+          buildImageSourceFingerprint(renderedDataUrl)
+        );
+      }
+      return normalizedRenderedDataUrl;
+    },
+    [
+      getImageDataForEditing,
+      imageData.id,
+      imageData.key,
+      imageData.localDataUrl,
+      imageData.pendingUpload,
+      imageData.remoteUrl,
+      imageData.src,
+      imageData.url,
+      projectId,
+      resolveRenderedImageDataUrl,
+    ]
+  );
 
   const handleExtractPalette = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -3032,12 +3110,55 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       const execute = async () => {
         setIsOptimizingHd(true);
+        let hdPlaceholderId: string | null = null;
         try {
-          // 获取图片数据
-          const baseImage = await resolveImageDataUrl();
+          const placeholderGap = Math.max(
+            32,
+            Math.min(120, realTimeBounds.width * 0.1)
+          );
+          const placeholderCenter = {
+            x:
+              realTimeBounds.x +
+              realTimeBounds.width +
+              placeholderGap +
+              realTimeBounds.width / 2,
+            y: realTimeBounds.y + realTimeBounds.height / 2,
+          };
+          hdPlaceholderId = `hd-upscale_${imageData.id}_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+
+          window.dispatchEvent(
+            new CustomEvent("predictImagePlaceholder", {
+              detail: {
+                action: "add",
+                placeholderId: hdPlaceholderId,
+                center: placeholderCenter,
+                width: realTimeBounds.width,
+                height: realTimeBounds.height,
+                operationType: "hd-upscale",
+                sourceImageId: imageData.id,
+                preferHorizontal: true,
+              },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("updatePlaceholderProgress", {
+              detail: { placeholderId: hdPlaceholderId, progress: 0.12 },
+            })
+          );
+
+          const baseImage = await resolveHdUpscaleSourceImageDataUrl();
           if (!baseImage) {
             throw new Error("无法获取原图");
           }
+
+          window.dispatchEvent(
+            new CustomEvent("updatePlaceholderProgress", {
+              detail: { placeholderId: hdPlaceholderId, progress: 0.28 },
+            })
+          );
 
           const baseImageElement = await loadImageElement(baseImage);
           const sourceWidth = Math.max(
@@ -3060,10 +3181,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             })
           );
 
-          // 使用 Banana provider 进行高清放大（只有 Banana 支持 imageSize 参数）
-          const HD_UPSCALE_MODEL = "gemini-2.5-flash-image-preview";
-          const HD_UPSCALE_PROVIDER = "banana";
-
           logger.info("📷 高清放大 - 使用 Banana editImage (4K)", {
             aiProvider: HD_UPSCALE_PROVIDER,
             model: HD_UPSCALE_MODEL,
@@ -3073,9 +3190,14 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             sourceHeight,
           });
 
+          window.dispatchEvent(
+            new CustomEvent("updatePlaceholderProgress", {
+              detail: { placeholderId: hdPlaceholderId, progress: 0.52 },
+            })
+          );
+
           const editResult = await aiImageService.editImage({
-            prompt:
-              "请将这张图片进行高清放大处理，提升分辨率到4K级别，保持原图的所有细节、颜色、构图和风格完全不变，只增强清晰度和分辨率，不要添加或修改任何内容。必须保持原始宽高比，禁止裁切、补边、拉伸、透视变化或改动构图。",
+            prompt: HD_UPSCALE_PROMPT,
             sourceImage: baseImage,
             model: HD_UPSCALE_MODEL,
             aiProvider: HD_UPSCALE_PROVIDER,
@@ -3089,25 +3211,36 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             throw new Error(editResult.error?.message || "高清放大失败");
           }
 
-          const resultImageData = editResult.data.imageData.startsWith(
-            "data:image"
-          )
-            ? editResult.data.imageData
-            : `data:image/png;base64,${editResult.data.imageData}`;
+          window.dispatchEvent(
+            new CustomEvent("updatePlaceholderProgress", {
+              detail: { placeholderId: hdPlaceholderId, progress: 0.82 },
+            })
+          );
 
-          // 直接下载 4K 图片，不加载到画布
-          const fileName = `hd-4k-${Date.now()}.png`;
-          const link = document.createElement("a");
-          link.href = resultImageData;
-          link.download = fileName;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          const resultImageData = ensureDataUrlString(
+            editResult.data.imageData,
+            "image/png"
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: resultImageData,
+                fileName: `hd-4k-${Date.now()}.png`,
+                selectedImageBounds: realTimeBounds,
+                smartPosition: placeholderCenter,
+                operationType: "hd-upscale",
+                sourceImageId: imageData.id,
+                placeholderId: hdPlaceholderId,
+                preferHorizontal: true,
+              },
+            })
+          );
 
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: "✨ 高清放大完成（4K），已下载",
+                message: "✨ 高清放大完成，已在右侧生成新图",
                 type: "success",
               },
             })
@@ -3116,6 +3249,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           const message =
             error instanceof Error ? error.message : "高清放大失败";
           logger.error("高清放大失败", error);
+          if (hdPlaceholderId) {
+            window.dispatchEvent(
+              new CustomEvent("predictImagePlaceholder", {
+                detail: { action: "remove", placeholderId: hdPlaceholderId },
+              })
+            );
+          }
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: { message, type: "error" },
@@ -3128,7 +3268,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       execute();
     },
-    [resolveImageDataUrl, imageData.id, isOptimizingHd, realTimeBounds]
+    [
+      imageData.id,
+      isOptimizingHd,
+      realTimeBounds,
+      resolveHdUpscaleSourceImageDataUrl,
+    ]
   );
 
   // 处理扩图取消
