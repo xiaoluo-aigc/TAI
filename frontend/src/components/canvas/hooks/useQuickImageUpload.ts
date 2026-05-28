@@ -236,15 +236,18 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const existing = predictedPlaceholdersRef.current.get(placeholderId);
         if (!existing || !existing.parent) return;
 
+        const normalizedProgress = Math.max(0, Math.min(100, progress));
+
         // 查找进度标签并更新 - 使用索引而不是直接引用
         const progressLabelIndex = existing.data?.progressLabelIndex as number | undefined;
         const progressLabel = (progressLabelIndex !== undefined && existing.children)
             ? existing.children[progressLabelIndex] as paper.PointText | undefined
             : undefined;
         if (progressLabel && progressLabel.parent) {
-            progressLabel.content = `${progress.toFixed(1)}%`;
-            paper.view?.update();
+            progressLabel.content = `${normalizedProgress.toFixed(1)}%`;
         }
+
+        paper.view?.update();
     }, []);
 
     // ========== 智能排版工具函数 ==========
@@ -821,127 +824,42 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             logger.upload('[QuickUpload] 占位符矩阵定位失败，使用原始位置', e);
         }
 
-        // ========== Agent 风格占位符 - 内部动效设计 ==========
         const halfW = width / 2;
         const halfH = height / 2;
         const cornerRadius = Math.min(width, height) * 0.02;
-        const mainColor = new paper.Color('#4b5563'); // 黑灰色
 
-        // 背景矩形
-        // 背景 - 更深的灰色调
         const bg = new paper.Path.Rectangle({
             rectangle: new paper.Rectangle(
                 centerPoint.subtract([halfW, halfH]),
                 new paper.Size(width, height)
             ),
             radius: cornerRadius,
-            fillColor: new paper.Color(0.58, 0.64, 0.72, 0.25) // slate-400 色调
+            fillColor: new paper.Color(0.58, 0.64, 0.72, 0.25)
         });
 
-        // 静态边框 - 虚线样式
         const border = new paper.Path.Rectangle({
             rectangle: new paper.Rectangle(
                 centerPoint.subtract([halfW, halfH]),
                 new paper.Size(width, height)
             ),
             radius: cornerRadius,
-            strokeColor: new paper.Color(0.39, 0.45, 0.55, 0.4), // slate-500 色调
+            strokeColor: new paper.Color(0.39, 0.45, 0.55, 0.4),
             strokeWidth: 1,
-            dashArray: [6, 4], // 虚线
+            dashArray: [6, 4],
             fillColor: null as any
         });
 
-        // 渐变光晕扫过效果（从左到右移动）
-        const shimmerWidth = width * 0.35; // 光晕宽度
-        const shimmerStartX = centerPoint.x - halfW - shimmerWidth;
-        const shimmer = new paper.Path.Rectangle({
-            rectangle: new paper.Rectangle(
-                new paper.Point(shimmerStartX, centerPoint.y - halfH + 5),
-                new paper.Size(shimmerWidth, height - 10)
-            ),
-            fillColor: new paper.Color({
-                gradient: {
-                    stops: [
-                        [new paper.Color(1, 1, 1, 0), 0],
-                        [new paper.Color(1, 1, 1, 0.4), 0.3],
-                        [new paper.Color(1, 1, 1, 0.7), 0.5],
-                        [new paper.Color(1, 1, 1, 0.4), 0.7],
-                        [new paper.Color(1, 1, 1, 0), 1]
-                    ]
-                },
-                origin: new paper.Point(shimmerStartX, centerPoint.y),
-                destination: new paper.Point(shimmerStartX + shimmerWidth, centerPoint.y)
-            })
-        });
-
-        // 创建裁剪蒙版，限制光晕在占位框内显示
-        const clipMask = new paper.Path.Rectangle({
-            rectangle: new paper.Rectangle(
-                centerPoint.subtract([halfW, halfH]),
-                new paper.Size(width, height)
-            ),
-            radius: cornerRadius,
-            clipMask: true
-        });
-
-        // 将光晕和裁剪蒙版放入一个组
-        const shimmerGroup = new paper.Group([clipMask, shimmer]);
-
-        // 内部扫描线（保留但调整颜色）
-        const scanLineY = -halfH + 10;
-        const scanLine = new paper.Path.Line({
-            from: centerPoint.add([-halfW + 15, scanLineY]),
-            to: centerPoint.add([halfW - 15, scanLineY]),
-            strokeColor: {
-                gradient: {
-                    stops: [
-                        [new paper.Color(0.39, 0.45, 0.55, 0), 0],
-                        [new paper.Color(0.39, 0.45, 0.55, 0.5), 0.5],
-                        [new paper.Color(0.39, 0.45, 0.55, 0), 1]
-                    ]
-                },
-                origin: centerPoint.add([-halfW + 15, scanLineY]),
-                destination: centerPoint.add([halfW - 15, scanLineY])
-            } as any,
-            strokeWidth: 2,
-            strokeCap: 'round',
-            visible: false // 隐藏扫描线，只用光晕效果
-        });
-
-        // 底部进度条（在框内）
-        const barWidth = width * 0.5;
-        const barHeight = 3;
-        const barY = halfH - 25;
-        const barBg = new paper.Path.Rectangle({
-            rectangle: new paper.Rectangle(
-                centerPoint.add([-barWidth / 2, barY]),
-                new paper.Size(barWidth, barHeight)
-            ),
-            radius: barHeight / 2,
-            fillColor: new paper.Color(0.9, 0.9, 0.92, 0.6)
-        });
-
-        const barFg = new paper.Path.Rectangle({
-            rectangle: new paper.Rectangle(
-                centerPoint.add([-barWidth / 2, barY]),
-                new paper.Size(0, barHeight)  // 初始宽度为0，避免显示小圆点
-            ),
-            radius: barHeight / 2,
-            fillColor: mainColor
-        });
-
-        // 进度文字
         const progressLabel = new paper.PointText({
-            point: centerPoint.add([0, barY + 18]),
+            point: centerPoint,
             content: '0%',
             justification: 'center',
             fillColor: new paper.Color('#6b7280'),
-            fontSize: Math.max(14, Math.min(18, width * 0.028)),
+            fontSize: Math.max(18, Math.min(28, width * 0.1)),
             fontWeight: '600',
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
         });
 
-        const group = new paper.Group([bg, border, shimmerGroup, scanLine, barBg, barFg, progressLabel]);
+        const group = new paper.Group([bg, border, progressLabel]);
         group.position = centerPoint;
         group.locked = true; // 占位框仅作为指示元素，不允许用户直接选择/拖拽
         group.data = {
@@ -956,17 +874,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             isHelper: true,
             placeholderSource: 'ai-predict',
             operationType: params.operationType,
-            // 🔥 不再存储 Paper.js 元素引用，避免循环引用导致序列化失败
-            // spinnerElement: scanLine,
-            // progressLabelElement: progressLabel,
-            // progressBarElement: barFg,
-            progressBarWidth: barWidth,
-            shimmerWidth: shimmerWidth,
-            // 🔥 存储子元素索引而不是引用
-            shimmerIndex: 2,        // shimmer 在 group.children 中的索引
-            spinnerIndex: 3,        // scanLine 在 group.children 中的索引
-            progressLabelIndex: 6,  // progressLabel 在 group.children 中的索引
-            progressBarIndex: 5     // barFg 在 group.children 中的索引
+            progressLabelIndex: 2
         };
 
         // 标记所有占位元素为辅助，防止被选择/拖拽
@@ -985,31 +893,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         };
         group.children?.forEach((child: paper.Item) => attachPlaceholderMeta(child));
         attachPlaceholderMeta(group);
-
-        // 动画
-        let animationFrameId: number | null = null;
-        let animationTime = 0;
-        const animationDuration = 2; // 2秒一个周期
-        const totalDistance = width + shimmerWidth * 2; // 总移动距离
-
-        const animate = () => {
-            if (!group?.parent || !shimmer?.parent) return;
-            animationTime += 0.016;
-
-            // 光晕从左到右扫过效果
-            const shimmerProgress = (animationTime % animationDuration) / animationDuration; // 0-1 循环
-            const startX = centerPoint.x - halfW - shimmerWidth;
-            const currentX = startX + shimmerProgress * totalDistance;
-
-            // 移动 shimmer 元素（shimmer 在 shimmerGroup 内，需要设置其 x 位置）
-            shimmer.position = new paper.Point(currentX + shimmerWidth / 2, centerPoint.y);
-
-            paper.view.update();
-            animationFrameId = requestAnimationFrame(animate);
-        };
-        animationFrameId = requestAnimationFrame(animate);
-
-        (group as any)._spinnerAnimationId = animationFrameId;
 
         predictedPlaceholdersRef.current.set(params.placeholderId, group);
         upsertPendingImage({

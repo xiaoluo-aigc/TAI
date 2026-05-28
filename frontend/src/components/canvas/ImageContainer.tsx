@@ -41,7 +41,7 @@ import {
 import { generateOssKey, uploadToOSS } from "@/services/ossUploadService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import type { Model3DData } from "@/services/model3DUploadService";
-// optimizeHdImage 已弃用，改用 aiImageService.editImage
+// optimizeHdImage 已弃用，高清放大走后端异步 edit-image 任务链路
 import ExpandImageSelector from "./ExpandImageSelector";
 import { useToolStore } from "@/stores";
 import aiImageService from "@/services/aiImageService";
@@ -3111,7 +3111,45 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const execute = async () => {
         setIsOptimizingHd(true);
         let hdPlaceholderId: string | null = null;
+        let hdProgressTimerId: number | null = null;
+        let hdProgressValue = 0;
         try {
+          const updateHdProgress = (nextProgress: number) => {
+            if (!hdPlaceholderId) return;
+            hdProgressValue = Math.max(hdProgressValue, nextProgress);
+            window.dispatchEvent(
+              new CustomEvent("updatePlaceholderProgress", {
+                detail: {
+                  placeholderId: hdPlaceholderId,
+                  progress: hdProgressValue,
+                },
+              })
+            );
+          };
+
+          const stopHdProgressTimer = () => {
+            if (hdProgressTimerId !== null) {
+              window.clearInterval(hdProgressTimerId);
+              hdProgressTimerId = null;
+            }
+          };
+
+          const startHdProgressTimer = (startFrom: number) => {
+            hdProgressValue = startFrom;
+            stopHdProgressTimer();
+            hdProgressTimerId = window.setInterval(() => {
+              const remaining = 92 - hdProgressValue;
+              if (remaining <= 0.2) {
+                stopHdProgressTimer();
+                return;
+              }
+              const step = Math.max(0.6, remaining * 0.08);
+              updateHdProgress(
+                Math.min(92, Number((hdProgressValue + step).toFixed(1)))
+              );
+            }, 1500);
+          };
+
           const placeholderGap = Math.max(
             32,
             Math.min(120, realTimeBounds.width * 0.1)
@@ -3145,20 +3183,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
           window.dispatchEvent(
             new CustomEvent("updatePlaceholderProgress", {
-              detail: { placeholderId: hdPlaceholderId, progress: 0.12 },
+              detail: { placeholderId: hdPlaceholderId, progress: 8 },
             })
           );
+          hdProgressValue = 8;
 
           const baseImage = await resolveHdUpscaleSourceImageDataUrl();
           if (!baseImage) {
             throw new Error("无法获取原图");
           }
 
-          window.dispatchEvent(
-            new CustomEvent("updatePlaceholderProgress", {
-              detail: { placeholderId: hdPlaceholderId, progress: 0.28 },
-            })
-          );
+          updateHdProgress(18);
 
           const baseImageElement = await loadImageElement(baseImage);
           const sourceWidth = Math.max(
@@ -3190,13 +3225,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             sourceHeight,
           });
 
-          window.dispatchEvent(
-            new CustomEvent("updatePlaceholderProgress", {
-              detail: { placeholderId: hdPlaceholderId, progress: 0.52 },
-            })
-          );
+          updateHdProgress(32);
+          startHdProgressTimer(36);
 
-          const editResult = await aiImageService.editImage({
+          const editResult = await editImageViaAPI({
             prompt: HD_UPSCALE_PROMPT,
             sourceImage: baseImage,
             model: HD_UPSCALE_MODEL,
@@ -3207,25 +3239,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             imageOnly: true,
           });
 
-          if (!editResult.success || !editResult.data?.imageData) {
+          stopHdProgressTimer();
+          const resultImageSource =
+            editResult.data?.imageData || editResult.data?.imageUrl;
+
+          if (!editResult.success || !resultImageSource) {
             throw new Error(editResult.error?.message || "高清放大失败");
           }
 
-          window.dispatchEvent(
-            new CustomEvent("updatePlaceholderProgress", {
-              detail: { placeholderId: hdPlaceholderId, progress: 0.82 },
-            })
-          );
-
-          const resultImageData = ensureDataUrlString(
-            editResult.data.imageData,
-            "image/png"
-          );
+          updateHdProgress(96);
 
           window.dispatchEvent(
             new CustomEvent("triggerQuickImageUpload", {
               detail: {
-                imageData: resultImageData,
+                imageData: resultImageSource,
                 fileName: `hd-4k-${Date.now()}.png`,
                 selectedImageBounds: realTimeBounds,
                 smartPosition: placeholderCenter,
@@ -3246,6 +3273,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             })
           );
         } catch (error) {
+          if (hdProgressTimerId !== null) {
+            window.clearInterval(hdProgressTimerId);
+            hdProgressTimerId = null;
+          }
           const message =
             error instanceof Error ? error.message : "高清放大失败";
           logger.error("高清放大失败", error);
@@ -3262,6 +3293,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             })
           );
         } finally {
+          if (hdProgressTimerId !== null) {
+            window.clearInterval(hdProgressTimerId);
+          }
           setIsOptimizingHd(false);
         }
       };
