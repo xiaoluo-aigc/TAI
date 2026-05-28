@@ -135,7 +135,7 @@ const enUS = {
       phonePlaceholder: "Phone number",
       emailPlaceholder: "Email (optional)",
       namePlaceholder: "Username (required)",
-      passwordPlaceholder: "Set password (at least 10 chars, mixed case+number)",
+      passwordPlaceholder: "Set password (at least 6 chars)",
       confirmPlaceholder: "Confirm password",
       invitePlaceholder: "Invite code (optional)",
       submit: "Sign up",

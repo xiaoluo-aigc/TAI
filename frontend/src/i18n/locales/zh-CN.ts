@@ -135,7 +135,7 @@ const zhCN = {
       phonePlaceholder: "请输入手机号",
       emailPlaceholder: "邮箱（选填）",
       namePlaceholder: "用户名（必填）",
-      passwordPlaceholder: "设置密码（至少8位，含大小写与数字）",
+      passwordPlaceholder: "设置密码（至少6位）",
       confirmPlaceholder: "确认密码",
       invitePlaceholder: "邀请码（选填）",
       submit: "注册",

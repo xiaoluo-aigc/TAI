@@ -207,6 +207,7 @@ export default function RegisterPage() {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                minLength={6}
                 required
                 className='bg-[#0d2847] border-transparent text-white placeholder:text-gray-400 focus:bg-[#144272] focus:border-transparent transition-all duration-200 rounded-xl h-12 pl-12 pr-10'
               />

@@ -1256,8 +1256,8 @@ export class AuthService {
     const normalizedCode = dto.code.trim();
     const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
 
-    if (dto.password.length < 8) {
-      throw new BadRequestException("至少8位密码");
+    if (dto.password.length < 6) {
+      throw new BadRequestException("至少6位密码");
     }
     if (dto.password !== dto.confirmPassword) {
       throw new BadRequestException("两次输入的密码不一致");

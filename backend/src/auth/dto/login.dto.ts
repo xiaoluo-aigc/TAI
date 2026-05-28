@@ -7,8 +7,8 @@ export class LoginDto {
   @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确，请输入有效的11位手机号' })
   phone!: string;
 
-  @ApiProperty({ minLength: 8 })
+  @ApiProperty({ minLength: 6 })
   @IsString()
-  @Length(8, 100, { message: '密码长度必须在8到100位之间' })
+  @Length(6, 100, { message: '密码长度必须在6到100位之间' })
   password!: string;
 }
