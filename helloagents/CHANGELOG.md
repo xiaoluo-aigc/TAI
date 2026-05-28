@@ -5,6 +5,9 @@ All notable changes to this knowledge base will be documented in this file.
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (knowledge-base versioning).
 
 ## [Unreleased]
+### Changed
+- Canvas image expansion now follows the generic `edit-image` workflow end-to-end: the frontend composes a full PNG with red `#ff0000` masked expansion area, `ExpandImageSelector` previews the same red mask and blocks non-expanding selections, and `ImageContainer` submits the composed image to `editImageViaAPI` before inserting the result back as a new canvas image.
+
 ### Fixed
 - Frontend OpenObserve production logs URL no longer carries a separate `www.tgtai.com` fallback: `frontend/.env` and `frontend/src/utils/openobserve.ts` now only use `VITE_OPENOBSERVE_LOGS_URL_PROD`, matching the current `www.tgtai.com -> tgtai.com` redirect setup.
 

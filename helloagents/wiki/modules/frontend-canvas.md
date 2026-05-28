@@ -62,6 +62,11 @@
 - `BackgroundRemovalTool` / `BackgroundRemovedImageExport`（`frontend/src/components/canvas/BackgroundRemovalTool.tsx`, `frontend/src/components/canvas/BackgroundRemovedImageExport.tsx`）已接入双语文案：上传提示、成功反馈、导出操作和空态文案按语言切换。
 - `TextSelectionOverlay` 已清理残余中文注释（无功能改动），保持双语扫描基线准确。
 
+## 扩图（通用 edit-image 方案）
+- 画布图片扩图不必依赖专用 `/api/ai/expand-image` 工作流；`ImageContainer` 已支持把“目标扩图框”前端合成为一张整图 PNG：整张画布先填充红色 `#ff0000`，再按偏移绘制原图。
+- 提交时复用 `editImageViaAPI`，固定提示词为“智能填充红色蒙版区域并与原图融合”，输出 `png`；生成结果作为新图片通过 `triggerQuickImageUpload` 插回画布，而不是覆盖原图。
+- `ExpandImageSelector` 的预览底色与实际提交蒙版保持一致（红色），且只有当目标框至少一边超出原图时才允许发送。
+
 ## 图片调色板条
 - `ImageContainer` 的图片操作菜单新增 `提取调色板`（位于“更多”菜单候选项内）。
 - 点击后会基于当前图片数据做降采样与主色聚类，提取 6 个主色，并生成一张独立的竖向调色板图片放在原图右侧（复用 `triggerQuickImageUpload` 链路）。

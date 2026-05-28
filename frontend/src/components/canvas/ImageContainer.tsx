@@ -63,7 +63,8 @@ import { blobToDataUrl, canvasToBlob, canvasToDataUrl, dataUrlToBlob } from "@/u
 import { splitImageIntoLayers } from "@/utils/imageLayerSplit";
 
 const EXPAND_PRESET_PROMPT =
-  "请智能填充图像中的黑色区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
+  "请智能填充图像中的红色蒙版区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
+const EXPAND_MASK_FILL_COLOR = "#ff0000";
 const TEXT_RECOGNITION_PROMPT =
   '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
 const HD_UPSCALE_MODEL = "gemini-3-pro-image-preview";
@@ -494,7 +495,7 @@ const _composeExpandedImage = async (
   }
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  ctx.fillStyle = "#000000";
+  ctx.fillStyle = EXPAND_MASK_FILL_COLOR;
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   ctx.drawImage(image, offsetX, offsetY, image.width, image.height);
 
@@ -2932,7 +2933,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     [isExpandingImage, setOperationInProgress]
   );
 
-  // 处理扩图选择完成（直接生成带空白画布并交给 Gemini 填充）
+  // 处理扩图选择完成（前端合成红色蒙版图，再复用通用 edit-image）
   const handleExpandSelect = useCallback(
     async (
       selectedBounds: { x: number; y: number; width: number; height: number },
@@ -2946,8 +2947,54 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       setShowExpandSelector(false);
       setIsExpandingImage(true);
       let expandPlaceholderId: string | null = null;
+      let expandProgressTimerId: number | null = null;
+      let expandProgressValue = 0;
 
       try {
+        const updateExpandProgress = (nextProgress: number) => {
+          if (!expandPlaceholderId) return;
+          expandProgressValue = Math.max(expandProgressValue, nextProgress);
+          window.dispatchEvent(
+            new CustomEvent("updatePlaceholderProgress", {
+              detail: {
+                placeholderId: expandPlaceholderId,
+                progress: expandProgressValue,
+              },
+            })
+          );
+        };
+
+        const stopExpandProgressTimer = () => {
+          if (expandProgressTimerId !== null) {
+            window.clearInterval(expandProgressTimerId);
+            expandProgressTimerId = null;
+          }
+        };
+
+        const startExpandProgressTimer = (startFrom: number) => {
+          expandProgressValue = startFrom;
+          stopExpandProgressTimer();
+          expandProgressTimerId = window.setInterval(() => {
+            if (!expandPlaceholderId) return;
+            if (expandProgressValue >= 92) {
+              stopExpandProgressTimer();
+              return;
+            }
+            expandProgressValue = Math.min(
+              92,
+              expandProgressValue + Math.max(0.8, (92 - expandProgressValue) * 0.08)
+            );
+            window.dispatchEvent(
+              new CustomEvent("updatePlaceholderProgress", {
+                detail: {
+                  placeholderId: expandPlaceholderId,
+                  progress: expandProgressValue,
+                },
+              })
+            );
+          }, 900);
+        };
+
         const selectedRight = selectedBounds.x + selectedBounds.width;
         const selectedBottom = selectedBounds.y + selectedBounds.height;
         const imageRight = realTimeBounds.x + realTimeBounds.width;
@@ -2974,7 +3021,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         window.dispatchEvent(
           new CustomEvent("toast", {
             detail: {
-              message: "⏳ 正在准备扩图画布并发送给 Gemini...",
+              message: "⏳ 正在准备红色蒙版扩图素材并提交编辑...",
               type: "info",
             },
           })
@@ -3008,19 +3055,26 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             },
           })
         );
+        window.dispatchEvent(
+          new CustomEvent("updatePlaceholderProgress", {
+            detail: { placeholderId: expandPlaceholderId, progress: 8 },
+          })
+        );
+        expandProgressValue = 8;
 
         const baseImageDataUrl = await resolveImageDataUrl();
         if (!baseImageDataUrl) {
           throw new Error("无法获取当前图片数据");
         }
+        updateExpandProgress(18);
 
         const composed = await _composeExpandedImage(
           baseImageDataUrl,
           realTimeBounds,
           selectedBounds
         );
+        updateExpandProgress(30);
 
-        // 同步输出合成黑底图到画布，便于对比与调试
         // 调试：在控制台查看合成图片信息
         console.log("扩展画布合成图片:", composed);
 
@@ -3037,6 +3091,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           aspectRatio: chatState.aspectRatio ?? "auto",
           imageOnly: chatState.imageOnly,
         });
+        updateExpandProgress(40);
+        startExpandProgressTimer(44);
 
         // 使用与聊天框 edit 模式完全相同的参数和调用方式
         const editResult = await editImageViaAPI({
@@ -3050,15 +3106,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           aspectRatio: chatState.aspectRatio ?? undefined,
           thinkingLevel: chatState.thinkingLevel ?? undefined,
         });
+        stopExpandProgressTimer();
 
-        if (!editResult.success || !editResult.data?.imageData) {
+        const resultImageSource =
+          editResult.data?.imageData || editResult.data?.imageUrl;
+
+        if (!editResult.success || !resultImageSource) {
           throw new Error(editResult.error?.message || "扩图失败");
         }
 
-        const finalImageUrl = ensureDataUrlString(
-          editResult.data.imageData,
-          "image/png"
-        );
+        updateExpandProgress(96);
+
+        const finalImageUrl = editResult.data?.imageData
+          ? ensureDataUrlString(editResult.data.imageData, "image/png")
+          : resultImageSource;
 
         window.dispatchEvent(
           new CustomEvent("triggerQuickImageUpload", {
@@ -3080,6 +3141,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           })
         );
       } catch (error) {
+        if (expandProgressTimerId !== null) {
+          window.clearInterval(expandProgressTimerId);
+          expandProgressTimerId = null;
+        }
         const message = error instanceof Error ? error.message : "扩图失败";
         logger.error("扩图失败", error);
         if (expandPlaceholderId) {
@@ -3095,6 +3160,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           })
         );
       } finally {
+        if (expandProgressTimerId !== null) {
+          window.clearInterval(expandProgressTimerId);
+        }
         setIsExpandingImage(false);
         setDrawMode("select");
       }

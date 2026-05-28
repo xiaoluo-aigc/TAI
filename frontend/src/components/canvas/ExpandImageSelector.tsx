@@ -56,6 +56,7 @@ const COMMON_SIZES = [
   { label: '3:4', ratio: 3 / 4 },
   { label: '9:16', ratio: 9 / 16 },
 ];
+const EXPAND_MASK_FILL_COLOR = '#ff0000';
 
 const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   imageBounds,
@@ -567,6 +568,21 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     };
   }, [imageScreenBounds, screenBounds]);
 
+  const hasExpandArea = useMemo(() => {
+    if (!frameBounds) return false;
+    const frameRight = frameBounds.x + frameBounds.width;
+    const frameBottom = frameBounds.y + frameBounds.height;
+    const imageRight = imageBounds.x + imageBounds.width;
+    const imageBottom = imageBounds.y + imageBounds.height;
+
+    return (
+      frameBounds.x < imageBounds.x - 0.5 ||
+      frameBounds.y < imageBounds.y - 0.5 ||
+      frameRight > imageRight + 0.5 ||
+      frameBottom > imageBottom + 0.5
+    );
+  }, [frameBounds, imageBounds]);
+
   // 阻止画板的默认交互，但允许截图选择层工作
   useEffect(() => {
     const canvas = paper.project?.view?.element;
@@ -646,7 +662,9 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
           }}
         >
           {frameBounds
-            ? lt('左键拖拽角柄调整区域，右键或点击取消按钮退出', 'Drag corner handles with left click. Right click or click cancel to exit.')
+            ? hasExpandArea
+              ? lt('红色区域会作为待补全蒙版提交，右键或点击取消按钮退出', 'Red area will be submitted as the fill mask. Right click or click cancel to exit.')
+              : lt('请至少拖出一侧超出原图的区域后再发送', 'Expand at least one side beyond the source image before sending.')
             : lt('请拖拽图片角柄调整扩图区域', 'Drag image corner handles to adjust the expansion area.')}
         </div>
         <Button
@@ -684,7 +702,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
               style={{
                 position: 'absolute',
                 inset: 0,
-                background: isDark ? '#1a1a1a' : '#fff',
+                background: EXPAND_MASK_FILL_COLOR,
                 boxShadow: isDark ? DARK.frameShadow : '0 30px 70px rgba(15,23,42,0.25)',
                 pointerEvents: 'none',
               }}
@@ -852,7 +870,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
               variant="default"
               size="sm"
               onClick={handleConfirm}
-              disabled={!frameBounds || !expandRatios}
+              disabled={!frameBounds || !expandRatios || !hasExpandArea}
               title={lt('发送', 'Send')}
               style={{
                 width: '34px',
