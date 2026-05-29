@@ -4199,7 +4199,7 @@ const MANAGED_MODEL_OUTPUT_CONFIG_MAP: Record<
   },
   "seedance-1.5": {
     aspectRatios: ["16:9", "9:16", "1:1"],
-    durations: [3, 4, 5, 6, 7, 8, 9, 10],
+    durations: [4, 5, 6, 7, 8, 9, 10, 11, 12],
     resolutions: ["720P"],
   },
   "seedance-2.0": {

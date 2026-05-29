@@ -2169,26 +2169,8 @@ export class VideoProviderService {
   ): Promise<VideoGenerationResult> {
     const normalizedPrompt =
       typeof options.prompt === "string" ? options.prompt.trim() : "";
-    let promptText = normalizedPrompt;
-    const params: string[] = [];
     const isSeedance2Model = modelVersion === "2.0" || modelVersion === "2.0-fast";
-
-    if (options.aspectRatio) {
-      params.push(`--ratio ${options.aspectRatio}`);
-    }
-    if (options.duration) {
-      params.push(`--dur ${options.duration}`);
-    }
-    if (options.camerafixed !== undefined) {
-      params.push(`--camerafixed ${options.camerafixed}`);
-    }
-    if (options.watermark !== undefined) {
-      params.push(`--watermark ${options.watermark}`);
-    }
-
-    if (!isSeedance2Model && params.length > 0) {
-      promptText = `${promptText} ${params.join(" ")}`;
-    }
+    const promptText = normalizedPrompt;
 
     const content: any[] = [];
     const referenceVideos = this.normalizeManagedV2ReferenceVideos(options);
@@ -2201,29 +2183,35 @@ export class VideoProviderService {
     // 处理参考图片：如果是 base64，先上传到 OSS；volc asset 对象在 sd2 时使用 asset:// 协议
     const { uploadedStringUrls, objectItems } = await this.splitAndUploadReferenceImages(options.referenceImages);
 
+    const normalizedImageUrls: string[] = [];
     for (const imageUrl of uploadedStringUrls) {
-      content.push({
-        type: "image_url",
-        image_url: { url: imageUrl },
-        role: "reference_image",
-      });
+      normalizedImageUrls.push(imageUrl);
       this.logger.log(`📸 Seedance 参考图片已处理: ${imageUrl.substring(0, 100)}...`);
     }
 
     for (const item of objectItems) {
-      let url: string;
-      if (isSeedance2Model && item.volcAssetStatus === "active" && item.volcAssetId) {
-        url = `asset://${item.volcAssetId}`;
-      } else {
-        url = item.url;
-      }
-      content.push({
-        type: "image_url",
-        image_url: { url },
-        role: "reference_image",
-      });
+      const url =
+        isSeedance2Model && item.volcAssetStatus === "active" && item.volcAssetId
+          ? `asset://${item.volcAssetId}`
+          : item.url;
+      normalizedImageUrls.push(url);
       this.logger.log(`📸 Seedance 参考图片 (asset/url): ${url.substring(0, 100)}`);
     }
+
+    normalizedImageUrls.forEach((url, index) => {
+      const imageItem: Record<string, any> = {
+        type: "image_url",
+        image_url: { url },
+      };
+
+      if (isSeedance2Model) {
+        imageItem.role = "reference_image";
+      } else if (options.videoMode === "start-end2video") {
+        imageItem.role = index === 0 ? "first_frame" : index === 1 ? "last_frame" : undefined;
+      }
+
+      content.push(imageItem);
+    });
 
     for (const videoUrl of referenceVideos) {
       content.push({
@@ -2252,25 +2240,29 @@ export class VideoProviderService {
       content,
     };
 
-    if (isSeedance2Model) {
-      if (typeof options.generateAudio === "boolean") {
-        payload.generate_audio = options.generateAudio;
-      }
-      if (typeof options.videoMode === "string" && options.videoMode.trim()) {
-        payload.video_mode = options.videoMode.trim();
-      }
-      if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
-        payload.ratio = options.aspectRatio.trim();
-      }
-      if (typeof options.duration === "number" && Number.isFinite(options.duration)) {
-        payload.duration = options.duration;
-      }
-      if (typeof options.resolution === "string" && options.resolution.trim()) {
-        payload.resolution = options.resolution.trim().toUpperCase();
-      }
-      if (typeof options.watermark === "boolean") {
-        payload.watermark = options.watermark;
-      }
+    if (typeof options.videoMode === "string" && options.videoMode.trim()) {
+      payload.video_mode = options.videoMode.trim();
+    }
+    if (typeof options.aspectRatio === "string" && options.aspectRatio.trim()) {
+      payload.ratio = options.aspectRatio.trim();
+    }
+    if (typeof options.duration === "number" && Number.isFinite(options.duration)) {
+      const normalizedDuration = Math.round(options.duration);
+      payload.duration = isSeedance2Model
+        ? Math.max(4, Math.min(15, normalizedDuration))
+        : Math.max(4, Math.min(12, normalizedDuration));
+    }
+    if (typeof options.resolution === "string" && options.resolution.trim()) {
+      payload.resolution = options.resolution.trim().toLowerCase();
+    }
+    if (typeof options.camerafixed === "boolean") {
+      payload.camera_fixed = options.camerafixed;
+    }
+    if (typeof options.watermark === "boolean") {
+      payload.watermark = options.watermark;
+    }
+    if (isSeedance2Model && typeof options.generateAudio === "boolean") {
+      payload.generate_audio = options.generateAudio;
     }
 
     this.logProviderPayload("doubao", payload);
@@ -2289,9 +2281,15 @@ export class VideoProviderService {
     );
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const rawText = await response.text().catch(() => "");
+      let error: any = {};
+      try {
+        error = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        error = { rawText };
+      }
       throw new Error(
-        error.error?.message || error.message || `HTTP ${response.status}`
+        error.error?.message || error.message || error.rawText || `HTTP ${response.status}`
       );
     }
 

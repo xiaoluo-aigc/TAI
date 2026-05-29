@@ -1152,7 +1152,7 @@ export class NodeConfigService {
               modelVersion: '1.5-pro',
               outputConfig: {
                 aspectRatios: ['16:9', '9:16', '1:1'],
-                durations: [3, 4, 5, 6, 7, 8, 9, 10],
+                durations: [4, 5, 6, 7, 8, 9, 10, 11, 12],
                 resolutions: ['720P'],
               },
               inputModes: ['text', 'image'],
@@ -1691,7 +1691,7 @@ export class NodeConfigService {
               modelVersion: '1.5-pro',
               outputConfig: {
                 aspectRatios: ['16:9', '9:16', '1:1'],
-                durations: [3, 4, 5, 6, 7, 8, 9, 10],
+                durations: [4, 5, 6, 7, 8, 9, 10, 11, 12],
                 resolutions: ['720P'],
               },
               inputModes: ['text', 'image'],

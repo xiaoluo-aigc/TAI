@@ -212,6 +212,7 @@ const SUPPORTED_AUDIO_PATTERN = new RegExp(
 const SUPPORTED_AUDIO_ACCEPT = SUPPORTED_AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
 const SEEDANCE20_DOC_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
+const SEEDANCE15_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 const SEEDANCE20_DOC_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 const SEEDANCE20_DOC_RESOLUTIONS = ["480P", "720P", "1080P"] as const;
 const SEEDANCE20_FAST_DOC_RESOLUTIONS = ["480P", "720P"] as const;
@@ -1014,7 +1015,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (provider === "doubao") {
       const values = isSeedance20Model
         ? [...SEEDANCE20_DOC_DURATIONS]
-        : [3, 4, 5, 6, 7, 8, 9, 10];
+        : [...SEEDANCE15_DOC_DURATIONS];
       return values.map((value) => ({ label: lt(`${value}秒`, `${value}s`), value }));
     }
     return [];
@@ -1110,7 +1111,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   React.useEffect(() => {
     if (!seedance20RestrictedForCurrentUser || !isSeedance20Model) return;
     const nextDuration =
-      clipDuration && clipDuration >= 3 && clipDuration <= 10 ? clipDuration : 5;
+      clipDuration && clipDuration >= 4 && clipDuration <= 12 ? clipDuration : 5;
     window.dispatchEvent(
       new CustomEvent("flow:updateNodeData", {
         detail: {
@@ -1127,6 +1128,12 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const durationOptions = React.useMemo(() => {
     if (provider === "doubao" && isSeedance20Model) {
       return [...SEEDANCE20_DOC_DURATIONS].map((value) => ({
+        label: lt(`${value}秒`, `${value}s`),
+        value,
+      }));
+    }
+    if (provider === "doubao") {
+      return [...SEEDANCE15_DOC_DURATIONS].map((value) => ({
         label: lt(`${value}秒`, `${value}s`),
         value,
       }));
@@ -1215,7 +1222,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
     return [
       lt("图片大小：单图建议不超过 30MB", "Image size: each image should be <= 30MB"),
-      lt("生成时长：3-10 秒", "Output duration: 3-10s"),
+      lt("生成时长：4-12 秒", "Output duration: 4-12s"),
       lt("分辨率/尺寸：720P；16:9、9:16、1:1", "Resolution/ratio: 720P; 16:9, 9:16, 1:1"),
     ];
   }, [isSeedance20Model, isSeedanceModel, lt, seedanceModel]);
@@ -1498,7 +1505,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             : clipDuration && clipDuration >= 4 && clipDuration <= 15
             ? clipDuration
             : 5
-          : clipDuration && clipDuration >= 3 && clipDuration <= 10
+          : clipDuration && clipDuration >= 4 && clipDuration <= 12
           ? clipDuration
           : 5;
       const currentResolution =

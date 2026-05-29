@@ -945,7 +945,7 @@ const KLING_MAX_AUDIO_INPUTS = 2;
 const SEEDANCE20_REFERENCE_IMAGE_MAX = 9;
 const SEEDANCE20_REFERENCE_VIDEO_MAX = 3;
 const SEEDANCE20_REFERENCE_AUDIO_MAX = 3;
-const SEEDANCE15_DURATIONS = [3, 4, 5, 6, 7, 8, 9, 10];
+const SEEDANCE15_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12];
 const SEEDANCE20_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 const SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024; // 30MB
 
@@ -14781,26 +14781,32 @@ function FlowInner() {
               (_, index) => index + 3
             );
           }
-          if (!(isSeedanceNode && isSeedance20Request)) {
+          if (!isSeedanceNode) {
             return configuredDurationOptions;
           }
 
-          // 兼容历史工作流：旧的 doubaoVideo 元数据通常是 3-10，切到 2.0 时不应继续拦截 15s。
-          if (nodeConfigKey === "doubaoVideo" || !metadataSupportsSeedance20) {
-            return [] as number[];
+          if (isSeedance20Request) {
+            // 兼容历史工作流：旧的 doubaoVideo 元数据通常不是 4-15，切到 2.0 时不应继续拦截 15s。
+            if (nodeConfigKey === "doubaoVideo" || !metadataSupportsSeedance20) {
+              return [] as number[];
+            }
+
+            return configuredDurationOptions.filter(
+              (value) =>
+                value >= SEEDANCE20_DURATIONS[0] &&
+                value <= SEEDANCE20_DURATIONS[SEEDANCE20_DURATIONS.length - 1]
+            );
           }
 
-          return configuredDurationOptions.filter(
-            (value) => value >= SEEDANCE20_DURATIONS[0] && value <= SEEDANCE20_DURATIONS[SEEDANCE20_DURATIONS.length - 1]
-          );
+          return [...SEEDANCE15_DURATIONS];
         })();
         if (isSeedanceNode && typeof clipDuration === "number" && Number.isFinite(clipDuration)) {
           if (isSeedance20Request && (clipDuration < 4 || clipDuration > 15)) {
             failCurrentVideoNode("Seedance 2.0 生成时长仅支持 4-15 秒");
             return;
           }
-          if (!isSeedance20Request && (clipDuration < 3 || clipDuration > 10)) {
-            failCurrentVideoNode("Seedance 1.5 生成时长仅支持 3-10 秒");
+          if (!isSeedance20Request && (clipDuration < 4 || clipDuration > 12)) {
+            failCurrentVideoNode("Seedance 1.5 生成时长仅支持 4-12 秒");
             return;
           }
         }
@@ -15293,8 +15299,8 @@ function FlowInner() {
           } else if (
             provider === "doubao" &&
             !isSeedance20Request &&
-            clipDuration >= 3 &&
-            clipDuration <= 10
+            clipDuration >= 4 &&
+            clipDuration <= 12
           ) {
             durationForAPI = clipDuration;
           }
