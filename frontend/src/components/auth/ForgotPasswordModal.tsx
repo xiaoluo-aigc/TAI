@@ -122,21 +122,11 @@ export default function ForgotPasswordModal({
       setError(lt("请输入新密码", "Please enter a new password"));
       return;
     }
-    // 密码长度8-100位，必须包含大小写字母和数字
-    if (newPassword.length < 8 || newPassword.length > 100) {
+    if (newPassword.length < 6 || newPassword.length > 100) {
       setError(
         lt(
-          "密码长度必须在8到100位之间",
-          "Password length must be between 8 and 100 characters"
-        )
-      );
-      return;
-    }
-    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
-      setError(
-        lt(
-          "密码需包含大小写字母和数字",
-          "Password must include uppercase/lowercase letters and numbers"
+          "密码长度必须在6到100位之间",
+          "Password length must be between 6 and 100 characters"
         )
       );
       return;

@@ -13,7 +13,6 @@ export class ResetPasswordDto {
 
   @ApiProperty({ description: '新密码' })
   @IsString({ message: '新密码必须是字符串' })
-  @Length(8, 100, { message: '密码长度必须在8到100位之间' })
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, { message: '密码需包含大小写字母和数字' })
+  @Length(6, 100, { message: '密码长度必须在6到100位之间' })
   newPassword!: string;
 }

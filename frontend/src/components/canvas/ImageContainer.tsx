@@ -63,7 +63,7 @@ import { blobToDataUrl, canvasToBlob, canvasToDataUrl, dataUrlToBlob } from "@/u
 import { splitImageIntoLayers } from "@/utils/imageLayerSplit";
 
 const EXPAND_PRESET_PROMPT =
-  "请智能填充图像中的红色蒙版区域，使其与原始图像内容完美融合，保持原图的高宽比不变";
+  "请执行图片外扩，只生成原图边界之外的新内容。严格保留原图内已有像素的主体形态、位置关系、颜色、纹理、光影和风格，不要修改原图内部内容。扩展区域需要与原图在语义、透视、景深、光照和颜色上连续一致。禁止出现纯色块、红色区域、遮罩痕迹、边框、拼接缝、模糊涂抹、重复物体、畸形结构或不自然纹理"
 const EXPAND_MASK_FILL_COLOR = "#ff0000";
 const TEXT_RECOGNITION_PROMPT =
   '请识别图片中所有可见文字，并仅返回 JSON 数组，例如：["文字1","文字2"]。不要返回其他解释。';
