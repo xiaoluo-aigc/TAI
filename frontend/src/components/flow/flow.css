@@ -645,6 +645,13 @@ video::-webkit-media-controls-fullscreen-button {
   border-color: rgba(120, 120, 120, 0.6) !important;
 }
 
+.run-btn-with-credit.midjourney-run-btn:hover:not(:disabled) .run-credit-badge,
+.run-btn-with-credit.midjourney-run-btn:focus-visible:not(:disabled) .run-credit-badge {
+  background: inherit !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  color: #fff !important;
+}
+
 .run-btn-with-credit:disabled .run-credit-badge {
   display: none !important;
   opacity: 0;

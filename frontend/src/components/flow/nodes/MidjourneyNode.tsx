@@ -612,10 +612,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Sparkles size={16} color={accentColor} />
-            <span style={{ fontWeight: 600, color: accentColor }}>
-              {title}
-              <RunCreditBadge credits={resolvedRunCredits} inline />
-            </span>
+            <span style={{ fontWeight: 600, color: accentColor }}>{title}</span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
@@ -638,6 +635,7 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
             <button
               onClick={onRun}
               disabled={status === 'running'}
+              className="run-btn-with-credit midjourney-run-btn"
               style={{
                 fontSize: 12,
                 padding: '4px 10px',
@@ -648,7 +646,14 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
                 cursor: status === 'running' ? 'not-allowed' : 'pointer',
               }}
             >
-              {status === 'running' ? 'Running...' : 'Run'}
+              {status === 'running' ? (
+                <span className="run-text-trigger">Running...</span>
+              ) : (
+                <>
+                  <span className="run-text-trigger">Run</span>
+                  <RunCreditBadge credits={resolvedRunCredits} runButton />
+                </>
+              )}
             </button>
             <button
               onClick={onSend}
@@ -1055,12 +1060,12 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Sparkles size={16} color="#8b5cf6" />
           <span style={{ fontWeight: 600, color: '#7c3aed' }}>Midjourney</span>
-          <RunCreditBadge credits={resolvedRunCredits} inline />
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={onRun}
             disabled={status === 'running'}
+            className="run-btn-with-credit midjourney-run-btn"
             style={{
               fontSize: 12,
               padding: '4px 10px',
@@ -1071,7 +1076,14 @@ function MidjourneyNodeInner({ id, type, data, selected }: Props) {
               cursor: status === 'running' ? 'not-allowed' : 'pointer',
             }}
           >
-            {status === 'running' ? 'Running...' : 'Run'}
+            {status === 'running' ? (
+              <span className="run-text-trigger">Running...</span>
+            ) : (
+              <>
+                <span className="run-text-trigger">Run</span>
+                <RunCreditBadge credits={resolvedRunCredits} runButton />
+              </>
+            )}
           </button>
           <button
             onClick={onSend}

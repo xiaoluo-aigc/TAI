@@ -10,15 +10,11 @@ export default function CommunityGuidelines() {
           </Link>
         </div>
 
-        <h1 className="text-2xl font-bold mb-2">Tanvas AI 社区自律公约</h1>
-        <p className="text-gray-500 text-sm mb-6">
-          版本生效日期：2026年2月10日
-        </p>
-
+        <h1 className="text-2xl font-bold mb-2">TAI AI 社区自律公约</h1>
         <div className="prose prose-gray max-w-none text-sm leading-relaxed">
           <h2 className="text-lg font-bold mt-6 mb-4">总则</h2>
           <p className="mb-4">
-            Tanvas AI平台（以下简称"平台"）作为一款以"无限画布+智能节点"为核心的AI线上创作工具，整合文本、图像、视频、3D等多元模型交互能力，旨在为创意爱好者与专业创作者搭建健康和谐、开放包容、互助友爱的AI创作交流空间。我们深刻认识到，规范有序、平等正向的社区生态是保障用户创作权益、推动平台长远发展的核心基石，故依据国家相关法律法规及人工智能伦理治理要求，制定本《Tanvas AI社区自律公约》（以下简称"本公约"）。
+            TAI AI平台（以下简称"平台"）作为一款以"无限画布+智能节点"为核心的AI线上创作工具，整合文本、图像、视频、3D等多元模型交互能力，旨在为创意爱好者与专业创作者搭建健康和谐、开放包容、互助友爱的AI创作交流空间。我们深刻认识到，规范有序、平等正向的社区生态是保障用户创作权益、推动平台长远发展的核心基石，故依据国家相关法律法规及人工智能伦理治理要求，制定本《TAI AI社区自律公约》（以下简称"本公约"）。
           </p>
           <p className="mb-4">
             本公约是用户使用平台全部服务的核心指引与行为准则，覆盖平台客户端、网页端及所有相关衍生服务的全体注册用户。用户若违反本公约约定，平台将依据违规情节轻重、影响范围、主观恶意程度等因素，采取相应处置措施，包括但不限于删除或屏蔽违规内容、限制节点功能使用权限、对违规账号实施禁言、封禁等；若行为涉嫌违法犯罪，平台将立即终止提供相关服务，并积极配合执法及司法机关开展调查处置工作。同时，平台鼓励全体用户主动履行监督义务，对违规内容及行为及时举报，携手共建安全可控、正向繁荣的AI创作生态。
@@ -29,7 +25,7 @@ export default function CommunityGuidelines() {
           <h2 className="text-lg font-bold mt-6 mb-4">平台倡导以下行为</h2>
           <ol className="list-decimal pl-6 mb-4">
             <li className="mb-3">
-              <strong>倡导构建平等友爱的Tanvas AI社区</strong>，尊重每一位创作者的创意成果与劳动付出。关爱未成年人群体，关照老年及新手创作者群体，坚守性别平等理念，包容多元文化；严禁攻击、谩骂、侮辱、诽谤、歧视他人，不得侵犯他人合法权益，共同营造温暖和谐的创作交流氛围。
+              <strong>倡导构建平等友爱的TAI AI社区</strong>，尊重每一位创作者的创意成果与劳动付出。关爱未成年人群体，关照老年及新手创作者群体，坚守性别平等理念，包容多元文化；严禁攻击、谩骂、侮辱、诽谤、歧视他人，不得侵犯他人合法权益，共同营造温暖和谐的创作交流氛围。
             </li>
             <li className="mb-3">
               <strong>鼓励创作原创、优质的AI内容。</strong>建议用户合理运用Image Node、Midjourney Node等图像节点及视频、3D节点，通过科学的节点组合功能，创作画质清晰、构图完整、创意独特的作品；减少发布拼接网络素材、使用粗劣特效、无意义节点堆砌或内容空洞的低质作品。
@@ -169,7 +165,7 @@ export default function CommunityGuidelines() {
               本公约依据国家现行法律法规及人工智能伦理治理相关要求制定，若后续相关法律法规、政策及行业规范发生调整，本公约将随之修订完善。修订后的公约将通过平台官网、客户端公告等方式进行公示，公示之日起7日后正式生效。
             </li>
             <li className="mb-3">
-              本公约未尽事宜，参照 Tanvas 用户服务与 AI 使用协议及平台其他专项规则执行，平台拥有对本公约的最终解释权。
+              本公约未尽事宜，参照 TAI 用户服务与 AI 使用协议及平台其他专项规则执行，平台拥有对本公约的最终解释权。
             </li>
             <li className="mb-3">
               本公约自发布之日起正式生效，适用于平台全体注册用户及所有服务场景。用户继续使用平台服务，即视为已充分阅读、理解并同意遵守本公约全部约定。
@@ -177,11 +173,11 @@ export default function CommunityGuidelines() {
           </ol>
 
           <div className="bg-gray-50 p-4 rounded-lg mb-4 mt-6">
-            <p className="mb-1"><strong>Tanvas AI平台运营团队</strong></p>
+            <p className="mb-1"><strong>TAI AI平台运营团队</strong></p>
           </div>
 
           <p className="text-gray-500 text-sm mt-6">
-            最终解释权归子午云创(深圳)科技有限公司所有
+            最终解释权归天宫子午（深圳）科技有限公司所有
           </p>
         </div>
       </div>

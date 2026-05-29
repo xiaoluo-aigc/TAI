@@ -105,15 +105,15 @@ export default function LoginPage() {
   }, [sendCooldown]);
 
   const agreementSection = (
-    <div className='flex items-start gap-3'>
+    <div className='flex items-start gap-2'>
       <button
         type='button'
         onClick={() => setAgreeTerms(!agreeTerms)}
-        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all sm:mt-0 ${
+        className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border-2 transition-all sm:mt-0 ${
           agreeTerms ? "border-white bg-white" : "border-white/50 bg-transparent"
         }`}
       >
-        {agreeTerms && <Check className='h-3.5 w-3.5 text-black' />}
+        {agreeTerms && <Check className='h-2.5 w-2.5 text-black' />}
       </button>
       <label
         onClick={() => setAgreeTerms(!agreeTerms)}
