@@ -127,29 +127,17 @@ async function json<T>(res: Response): Promise<T> {
     try {
       const data = await res.json();
       msg = data?.message || data?.error || msg;
+      msg = normalizeSmsErrorMessage(msg);
 
       // 全局处理特定的错误信息
       if (typeof window !== "undefined") {
-        // 处理短信发送频率限制
-        if (msg.includes("请等待 60 秒后再试")) {
-          window.dispatchEvent(
-            new CustomEvent("toast", {
-              detail: {
-                message: "发送过于频繁，请等待60秒后再试",
-                type: "error",
-              },
-            })
-          );
-        }
-        // 处理阿里云业务流控错误
-        else if (
-          msg.includes("isv.BUSINESS_LIMIT_CONTROL") ||
-          msg.includes("触发天级流控")
+        if (
+          msg === "发送过于频繁，请60秒后重试"
         ) {
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: "发送过于频繁，请稍后再试",
+                message: msg,
                 type: "error",
               },
             })
@@ -160,6 +148,23 @@ async function json<T>(res: Response): Promise<T> {
     throw new Error(msg);
   }
   return res.json();
+}
+
+function normalizeSmsErrorMessage(message: string) {
+  const msg = String(message || "");
+
+  if (
+    msg.includes("请等待 60 秒后再试") ||
+    msg.includes("isv.BUSINESS_LIMIT_CONTROL") ||
+    msg.includes("BUSINESS_LIMIT_CONTROL") ||
+    msg.includes("触发小时级流控") ||
+    msg.includes("触发天级流控") ||
+    msg.includes("Permits:5")
+  ) {
+    return "发送过于频繁，请60秒后重试";
+  }
+
+  return msg;
 }
 
 export const authApi = {
@@ -412,12 +417,7 @@ export const authApi = {
     // 如果后端返回 ok=false，则将其作为异常抛出，统一由调用方在 catch 中展示全局提示
     if (!result.ok) {
       const err = result.error || "发送失败";
-      if (err.includes("请等待")) {
-        throw new Error("请等待 60 秒后再试");
-      } else if (err.includes("BUSINESS_LIMIT_CONTROL")) {
-        throw new Error("今日发送过于频繁，每日只允许发送10条短信，请明日再试");
-      }
-      throw new Error(err);
+      throw new Error(normalizeSmsErrorMessage(err));
     }
 
     return result;

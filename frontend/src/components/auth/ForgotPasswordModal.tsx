@@ -43,6 +43,18 @@ export default function ForgotPasswordModal({
     return () => clearInterval(t);
   }, [sendCooldown]);
 
+  const isSmsRateLimited = (message: string) => {
+    const msg = String(message || "");
+    return (
+      msg.includes("60秒后重试") ||
+      msg.includes("60 seconds") ||
+      msg.includes("BUSINESS_LIMIT_CONTROL") ||
+      msg.includes("触发小时级流控") ||
+      msg.includes("触发天级流控") ||
+      msg.includes("Permits:5")
+    );
+  };
+
   const handleClose = () => {
     setStep("phone");
     setPhone("");
@@ -67,7 +79,7 @@ export default function ForgotPasswordModal({
 
     try {
       setError(null);
-      const res = await authApi.sendSms({ phone });
+      await authApi.sendSms({ phone });
       window.dispatchEvent(
         new CustomEvent("toast", {
           detail: {
@@ -82,7 +94,11 @@ export default function ForgotPasswordModal({
       setSendCooldown(60);
       setStep("verify");
     } catch (err: any) {
-      setError(err?.message || lt("发送失败", "Send failed"));
+      const message = err?.message || lt("发送失败", "Send failed");
+      if (isSmsRateLimited(message)) {
+        setSendCooldown(60);
+      }
+      setError(message);
     }
   };
 
