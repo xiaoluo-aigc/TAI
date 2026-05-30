@@ -1257,7 +1257,7 @@ export class AuthService {
     const normalizedEmail = dto.email ? dto.email.trim().toLowerCase() : null;
 
     if (dto.password.length < 6) {
-      throw new BadRequestException("至少6位密码");
+      throw new BadRequestException("密码长度必须在6到100位之间");
     }
     if (dto.password !== dto.confirmPassword) {
       throw new BadRequestException("两次输入的密码不一致");
@@ -1378,6 +1378,10 @@ export class AuthService {
   }
 
   async resetPassword(phone: string, code: string, newPassword: string) {
+    if (newPassword.length < 6 || newPassword.length > 100) {
+      throw new BadRequestException("密码长度必须在6到100位之间");
+    }
+
     // 验证短信验证码
     const verify = await this.smsService.verifyCode(phone, code);
     if (!verify.ok) throw new BadRequestException(verify.msg || "验证码错误");
