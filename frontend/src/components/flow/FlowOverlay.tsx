@@ -1628,31 +1628,6 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   return null;
 };
 
-const normalizeFlowNodeTypeStrict = (rawType?: string): FlowNodeType | null => {
-  if (typeof rawType !== "string") return null;
-  const trimmed = rawType.trim();
-  if (!trimmed) return null;
-
-  const lowered = trimmed.toLowerCase();
-  const aliasMatched = FLOW_NODE_KEY_ALIASES[lowered];
-  if (aliasMatched) return aliasMatched;
-
-  if (trimmed in FLOW_NODE_DEFAULT_SIZE) {
-    return trimmed as FlowNodeType;
-  }
-
-  const caseInsensitive = (Object.keys(FLOW_NODE_DEFAULT_SIZE) as FlowNodeType[]).find(
-    (key) => key.toLowerCase() === lowered
-  );
-  if (caseInsensitive) return caseInsensitive;
-
-  const canonical = canonicalizeNodeTypeKey(trimmed);
-  const canonicalMatched = FLOW_NODE_CANONICAL_MAP[canonical];
-  if (canonicalMatched) return canonicalMatched;
-
-  return null;
-};
-
 const isHiddenFlowNodeType = (rawType?: string): boolean => {
   const normalized = normalizeFlowNodeType(rawType);
   return Boolean(normalized && HIDDEN_FLOW_NODE_TYPES.has(normalized));
@@ -2402,7 +2377,7 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
     metadata.nodeConfig && typeof metadata.nodeConfig === "object"
       ? (metadata.nodeConfig as Record<string, unknown>)
       : undefined;
-  const strictCandidates = [
+  const candidates = [
     typeof nodeConfig?.flowNodeType === "string" ? nodeConfig.flowNodeType : undefined,
     typeof metadata.type === "string" ? metadata.type : undefined,
     typeof metadata.flowNodeType === "string" ? metadata.flowNodeType : undefined,
@@ -2410,40 +2385,80 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
     typeof metadata.provider === "string" ? metadata.provider : undefined,
     config.nodeKey,
     config.serviceType,
-  ];
-  const displayCandidates = [
     config.nameEn,
     config.nameZh,
   ];
 
-  for (const candidate of strictCandidates) {
-    const normalized = normalizeFlowNodeTypeStrict(candidate);
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  for (const candidate of displayCandidates) {
-    const normalized = normalizeFlowNodeTypeStrict(candidate);
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  for (const candidate of strictCandidates) {
+  for (const candidate of candidates) {
     const normalized = normalizeFlowNodeType(candidate);
     if (normalized) {
       return normalized;
     }
   }
 
-  for (const candidate of [...strictCandidates, ...displayCandidates]) {
+  for (const candidate of candidates) {
     if (typeof candidate === "string" && candidate.trim()) {
       return candidate.trim();
     }
   }
 
   return "";
+};
+
+const isBaseVideoInputPaletteConfig = (config?: Partial<NodeConfig>): boolean => {
+  if (!config) return false;
+  const nodeKey = String(config.nodeKey || "").trim().toLowerCase();
+  if (nodeKey === "video") return true;
+  const resolvedType = resolveFlowNodeTypeFromConfig(config);
+  return resolvedType === "video" && config.category === "input";
+};
+
+const sanitizeBaseVideoInputPaletteConfig = (
+  config: Partial<NodeConfig>
+): Partial<NodeConfig> => {
+  const metadata =
+    config.metadata && typeof config.metadata === "object"
+      ? ({ ...(config.metadata as Record<string, any>) } as Record<string, any>)
+      : {};
+
+  delete metadata.type;
+  delete metadata.flowNodeType;
+  delete metadata.provider;
+  delete metadata.nodeKey;
+  delete metadata.modelKeys;
+  delete metadata.managedModelKey;
+  delete metadata.managedRoutes;
+  delete metadata.supportedModels;
+  delete metadata.vod;
+  delete metadata.vipOnly;
+  delete metadata.defaultData;
+
+  if (metadata.nodeConfig && typeof metadata.nodeConfig === "object") {
+    const nextNodeConfig = {
+      ...(metadata.nodeConfig as Record<string, any>),
+      flowNodeType: "video",
+      nodeKey: "video",
+      taskType: "input",
+    };
+    delete nextNodeConfig.provider;
+    delete nextNodeConfig.vod;
+    metadata.nodeConfig = nextNodeConfig;
+  }
+
+  return {
+    ...config,
+    nodeKey: "video",
+    category: "input",
+    nameZh: config.nameZh || "视频节点",
+    nameEn: config.nameEn || "Video",
+    description:
+      typeof config.description === "string" && config.description.trim()
+        ? config.description
+        : "上传视频文件",
+    status: "normal",
+    statusMessage: undefined,
+    metadata,
+  };
 };
 
 const NODE_STATUS_PRIORITY: Record<NodeConfig["status"], number> = {
@@ -2553,6 +2568,24 @@ const mergeNodePaletteConfig = (
   incoming: NodeConfig,
   resolvedType?: string
 ): NodeConfig => {
+  const baseIsVideoInput = isBaseVideoInputPaletteConfig(base);
+  const incomingIsVideoInput = isBaseVideoInputPaletteConfig(incoming);
+  if (baseIsVideoInput || incomingIsVideoInput) {
+    const videoInputSource = baseIsVideoInput ? base : incoming;
+    const sanitized = sanitizeBaseVideoInputPaletteConfig(videoInputSource);
+    return {
+      ...(sanitized as NodeConfig),
+      creditsPerCall: 0,
+      sortOrder: Number.isFinite(Number(videoInputSource.sortOrder))
+        ? Number(videoInputSource.sortOrder)
+        : 5,
+      metadata:
+        sanitized.metadata && typeof sanitized.metadata === "object"
+          ? (sanitized.metadata as Record<string, any>)
+          : {},
+    };
+  }
+
   const basePriority = NODE_STATUS_PRIORITY[base.status] ?? 99;
   const incomingPriority = NODE_STATUS_PRIORITY[incoming.status] ?? 99;
   const preferred = incomingPriority < basePriority ? incoming : base;
@@ -2602,6 +2635,12 @@ const buildNodePaletteCaption = (config: Partial<NodeConfig>): string | undefine
     }
     return trimmed;
   };
+  if (isBaseVideoInputPaletteConfig(config)) {
+    if (typeof config.description === "string" && config.description.trim()) {
+      return normalizeCaption(config.description);
+    }
+    return "上传视频文件";
+  }
   const nodeConfig =
     metadata.nodeConfig && typeof metadata.nodeConfig === "object"
       ? (metadata.nodeConfig as Record<string, any>)
@@ -3525,6 +3564,9 @@ function FlowInner() {
 
     const prepared = merged
       .map((config) => {
+        if (isBaseVideoInputPaletteConfig(config)) {
+          return sanitizeBaseVideoInputPaletteConfig(config);
+        }
         // 有后端配置时沿用后台名称，避免「节点管理」改名后面板仍被写死覆盖
         if (!hasBackendConfigs && config.nodeKey === "generatePro") {
           return {
