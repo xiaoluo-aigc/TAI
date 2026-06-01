@@ -1628,6 +1628,31 @@ const normalizeFlowNodeType = (rawType?: string): FlowNodeType | null => {
   return null;
 };
 
+const normalizeFlowNodeTypeStrict = (rawType?: string): FlowNodeType | null => {
+  if (typeof rawType !== "string") return null;
+  const trimmed = rawType.trim();
+  if (!trimmed) return null;
+
+  const lowered = trimmed.toLowerCase();
+  const aliasMatched = FLOW_NODE_KEY_ALIASES[lowered];
+  if (aliasMatched) return aliasMatched;
+
+  if (trimmed in FLOW_NODE_DEFAULT_SIZE) {
+    return trimmed as FlowNodeType;
+  }
+
+  const caseInsensitive = (Object.keys(FLOW_NODE_DEFAULT_SIZE) as FlowNodeType[]).find(
+    (key) => key.toLowerCase() === lowered
+  );
+  if (caseInsensitive) return caseInsensitive;
+
+  const canonical = canonicalizeNodeTypeKey(trimmed);
+  const canonicalMatched = FLOW_NODE_CANONICAL_MAP[canonical];
+  if (canonicalMatched) return canonicalMatched;
+
+  return null;
+};
+
 const isHiddenFlowNodeType = (rawType?: string): boolean => {
   const normalized = normalizeFlowNodeType(rawType);
   return Boolean(normalized && HIDDEN_FLOW_NODE_TYPES.has(normalized));
@@ -2377,7 +2402,7 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
     metadata.nodeConfig && typeof metadata.nodeConfig === "object"
       ? (metadata.nodeConfig as Record<string, unknown>)
       : undefined;
-  const candidates = [
+  const strictCandidates = [
     typeof nodeConfig?.flowNodeType === "string" ? nodeConfig.flowNodeType : undefined,
     typeof metadata.type === "string" ? metadata.type : undefined,
     typeof metadata.flowNodeType === "string" ? metadata.flowNodeType : undefined,
@@ -2385,18 +2410,34 @@ const resolveFlowNodeTypeFromConfig = (config: Partial<NodeConfig>): string => {
     typeof metadata.provider === "string" ? metadata.provider : undefined,
     config.nodeKey,
     config.serviceType,
+  ];
+  const displayCandidates = [
     config.nameEn,
     config.nameZh,
   ];
 
-  for (const candidate of candidates) {
+  for (const candidate of strictCandidates) {
+    const normalized = normalizeFlowNodeTypeStrict(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  for (const candidate of displayCandidates) {
+    const normalized = normalizeFlowNodeTypeStrict(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  for (const candidate of strictCandidates) {
     const normalized = normalizeFlowNodeType(candidate);
     if (normalized) {
       return normalized;
     }
   }
 
-  for (const candidate of candidates) {
+  for (const candidate of [...strictCandidates, ...displayCandidates]) {
     if (typeof candidate === "string" && candidate.trim()) {
       return candidate.trim();
     }
