@@ -300,7 +300,7 @@ const BANANA_TENCENT_RESOLUTION_PRICING: Record<
 };
 
 // 尊享路线 (stable/tencent) 定价
-// Fast: 1K=40
+// Fast: 1K=30
 // Pro: 1K=90, 2K=100, 4K=170
 // Ultra: 0.5K=30, 1K=50, 2K=70, 4K=110
 const BANANA_TENCENT_STABLE_RESOLUTION_PRICING: Record<
@@ -308,10 +308,10 @@ const BANANA_TENCENT_STABLE_RESOLUTION_PRICING: Record<
   Record<'0.5K' | '1K' | '2K' | '4K', number>
 > = {
   fast: {
-    '0.5K': 40,
-    '1K': 40,
-    '2K': 40,
-    '4K': 40,
+    '0.5K': 30,
+    '1K': 30,
+    '2K': 30,
+    '4K': 30,
   },
   pro: {
     '0.5K': 90,

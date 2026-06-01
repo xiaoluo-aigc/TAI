@@ -4648,6 +4648,29 @@ export class AiController {
     const generationTaskId = `sync-expand-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const traceId = this.getTraceId(req);
     const parentRequestId = this.getRequestId(req);
+    const providerName =
+      typeof dto.aiProvider === 'string' && dto.aiProvider.trim() && dto.aiProvider !== 'gemini'
+        ? dto.aiProvider.trim()
+        : null;
+    const model = this.resolveImageModel(providerName, dto.model);
+    const serviceType = model?.includes('2.5')
+      ? 'gemini-2.5-image-edit'
+      : model?.includes('3.1')
+      ? 'gemini-3.1-image-edit'
+      : 'gemini-image-edit';
+    const customApiKey = this.isGeminiProvider(providerName)
+      ? await this.getUserCustomApiKey(req)
+      : null;
+    const skipCredits = !!customApiKey;
+    const providerOptions =
+      dto.providerOptions && typeof dto.providerOptions === 'object'
+        ? dto.providerOptions
+        : dto.bananaImageRoute
+        ? {
+            banana: { imageRoute: dto.bananaImageRoute },
+            bananaImageRoute: dto.bananaImageRoute,
+          }
+        : undefined;
 
     void this.telemetryService.ingestGenerationTask({
       traceId,
@@ -4656,10 +4679,18 @@ export class AiController {
       taskType: 'image-expand',
       stage: 'queued',
       userId,
-      provider: 'expand-image',
+      provider: providerName || 'expand-image',
       prompt: dto.prompt?.slice(0, 500) || '扩图',
       status: 'queued',
       metadata: {
+        model,
+        serviceType,
+        skipCredits,
+        imageSize: dto.imageSize || null,
+        bananaImageRoute:
+          dto.bananaImageRoute ||
+          this.resolveBananaImageRouteFromProviderOptions(providerOptions) ||
+          null,
         expandRatios: Array.isArray(dto.expandRatios) ? dto.expandRatios : null,
       },
       receivedAt: new Date().toISOString(),
@@ -4673,13 +4704,17 @@ export class AiController {
         taskType: 'image-expand',
         stage: 'processing',
         userId,
-        provider: 'expand-image',
+        provider: providerName || 'expand-image',
         prompt: dto.prompt?.slice(0, 500) || '扩图',
         status: 'processing',
+        metadata: {
+          model,
+          serviceType,
+        },
         receivedAt: new Date().toISOString(),
       });
 
-      const result = await this.withCredits(req, 'expand-image', undefined, async () => {
+      const result = await this.withCredits(req, serviceType as any, model, async () => {
       const normalizedImageUrl = this.normalizeImageUrlForUpstream(dto.imageUrl);
       const expanded = await this.expandImageService.expandImage(
         normalizedImageUrl,
@@ -4705,7 +4740,12 @@ export class AiController {
           bytes: managed.bytes,
         },
       };
-      }, 1, 1);
+      }, 1, 1, skipCredits, this.buildCreditRequestParams(providerName, {
+        imageSize: dto.imageSize,
+        aspectRatio: dto.aspectRatio,
+        thinkingLevel: dto.thinkingLevel,
+        ...this.buildRequestPromptAndImageParams(dto.prompt || '扩图', [dto.imageUrl]),
+      }, providerOptions));
 
       void this.telemetryService.ingestGenerationTask({
         traceId,
@@ -4714,11 +4754,13 @@ export class AiController {
         taskType: 'image-expand',
         stage: 'succeeded',
         userId,
-        provider: 'expand-image',
+        provider: providerName || 'expand-image',
         prompt: dto.prompt?.slice(0, 500) || '扩图',
         status: 'succeeded',
         durationMs: Date.now() - startTime,
         metadata: {
+          model,
+          serviceType,
           imageUrl: result.imageUrl,
           promptId: result.promptId,
         },
@@ -4735,11 +4777,15 @@ export class AiController {
         taskType: 'image-expand',
         stage: 'failed',
         userId,
-        provider: 'expand-image',
+        provider: providerName || 'expand-image',
         prompt: dto.prompt?.slice(0, 500) || '扩图',
         status: 'failed',
         durationMs: Date.now() - startTime,
         error: errorMessage,
+        metadata: {
+          model,
+          serviceType,
+        },
         receivedAt: new Date().toISOString(),
       });
       throw error;

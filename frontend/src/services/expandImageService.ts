@@ -25,6 +25,13 @@ export interface ExpandImageRequest {
     bottom: number; // 下侧扩图部分/原图高度
   };
   prompt?: string; // 提示词，默认为"扩图"
+  aiProvider?: string;
+  model?: string;
+  imageSize?: string;
+  aspectRatio?: string;
+  thinkingLevel?: string;
+  bananaImageRoute?: string;
+  providerOptions?: Record<string, any>;
 }
 
 export interface ExpandImageResponse {

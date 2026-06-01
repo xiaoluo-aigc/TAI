@@ -515,4 +515,32 @@ export class ExpandImageDto {
   @IsOptional()
   @IsString()
   prompt?: string; // 鎻愮ず璇嶏紝榛樿涓?鎵╁浘"
+
+  @IsOptional()
+  @IsString()
+  aiProvider?: string;
+
+  @IsOptional()
+  @IsString()
+  model?: string;
+
+  @IsOptional()
+  @IsString()
+  imageSize?: string;
+
+  @IsOptional()
+  @IsString()
+  aspectRatio?: string;
+
+  @IsOptional()
+  @IsString()
+  thinkingLevel?: string;
+
+  @IsOptional()
+  @IsString()
+  bananaImageRoute?: string;
+
+  @IsOptional()
+  @IsObject()
+  providerOptions?: Record<string, any>;
 }
