@@ -1530,28 +1530,28 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
 const NODE_PALETTE_ITEMS = [
   // 输入节点
   { key: "textPrompt", zh: "提示词节点", en: "Prompt Node", category: "input" },
-  { key: "textChat", zh: "纯文本交互节点", en: "Text Chat Node", category: "input" },
+  // { key: "textChat", zh: "纯文本交互节点", en: "Text Chat Node", category: "input" }, // 海外节点
   { key: "textNote", zh: "纯文本节点", en: "Note Node", category: "input" },
-  { key: "promptOptimize", zh: "提示词优化节点", en: "Prompt Optimizer", category: "input" },
+  // { key: "promptOptimize", zh: "提示词优化节点", en: "Prompt Optimizer", category: "input" }, // 海外节点
   { key: "image", zh: "图片节点", en: "Image Node", category: "input" },
   { key: "video", zh: "视频节点", en: "Video Node", category: "input" },
   { key: "camera", zh: "截图节点", en: "Shot Node", category: "input" },
-  // 生图节点
-  { key: "generate", zh: "生成节点", en: "Generate Node", category: "image" },
-  { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer", category: "image" },
-  { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate", category: "image" },
-  { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" },
-  { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" },
-  { key: "gptImage2", zh: "GPT-Image-2", en: "GPT-Image-2", category: "image" },
-  { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" },
+  // 生图节点（海外节点已注释）
+  // { key: "generate", zh: "生成节点", en: "Generate Node", category: "image" }, // 海外节点
+  // { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer", category: "image" }, // 海外节点
+  // { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate", category: "image" }, // 海外节点
+  // { key: "generatePro", zh: "自定义节点", en: "Agent", category: "image" }, // 海外节点
+  // { key: "midjourney", zh: "Midjourney生成", en: "Midjourney", category: "image" }, // 海外节点
+  // { key: "gptImage2", zh: "GPT-Image-2", en: "GPT-Image-2", category: "image" }, // 海外节点
+  // { key: "analysis", zh: "图像分析节点", en: "Analysis Node", category: "image" }, // 海外节点
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid", category: "image" },
   { key: "imageSplit", zh: "图片分割节点", en: "Image Split", category: "image" },
   { key: "imageCompress", zh: "图片压缩节点", en: "Image Compress", category: "image" },
   { key: "three", zh: "三维节点", en: "3D Node", category: "image" },
   { key: "viewAngle", zh: "视角变换节点", en: "View Angle", category: "image" },
   // 视频生成节点
-  { key: "sora2Video", zh: "Sora2 Pro", en: "Sora2 Pro", category: "video" },
-  { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" },
+  // { key: "sora2Video", zh: "Sora2 Pro", en: "Sora2 Pro", category: "video" }, // 海外节点
+  // { key: "sora2Character", zh: "Sora2角色生成", en: "Sora2 Character", category: "video" }, // 海外节点
   { key: "wan26", zh: "Wan2.6", en: "Wan2.6", category: "video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 Reference Video", category: "video" },
   { key: "happyhorseR2V", zh: "快乐马", en: "HappyHorse", category: "video" },
@@ -1559,8 +1559,8 @@ const NODE_PALETTE_ITEMS = [
   { key: "wan27Video", zh: "Wan2.7 I2V", en: "Wan2.7 I2V", category: "video" },
   { key: "klingVideo", zh: "Kling", en: "Kling", category: "video" },
   // { key: "kling26Video", zh: "Kling 2.6视频生成", en: "Kling 2.6", category: "video" },
-  { key: "viduVideo", zh: "Vidu", en: "Vidu", category: "video" },
-  { key: "omniFlashExtVideo", zh: "Omni Flash Ext", en: "Omni Flash Ext", category: "video" },
+  // { key: "viduVideo", zh: "Vidu", en: "Vidu", category: "video" }, // 海外节点
+  // { key: "omniFlashExtVideo", zh: "Omni Flash Ext", en: "Omni Flash Ext", category: "video" }, // 海外节点
   {
     key: "doubaoVideo",
     zh: "Seedance 1.5 Pro",
@@ -1568,7 +1568,7 @@ const NODE_PALETTE_ITEMS = [
     category: "video",
   },
   // 其他节点
-  { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis", category: "other" },
+  // { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis", category: "other" }, // 海外节点
   { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract", category: "other" },
   { key: "videoToGif", zh: "视频转GIF节点", en: "Video to GIF", category: "other" },
   { key: "videoCompose", zh: "视频合成节点", en: "Video Compose", category: "video" },
