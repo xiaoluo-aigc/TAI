@@ -36,8 +36,16 @@ export function isArchitectureSecondaryCategory(category: string): boolean {
   return (ARCHITECTURE_SECONDARY_CATEGORIES as readonly string[]).includes(trimmed);
 }
 
-/** 公共模板二级分类：建筑设计、美育设计置顶 */
-export const PRIORITY_PUBLIC_TEMPLATE_CATEGORIES = ["建筑设计", "美育设计"] as const;
+/** 已下线、不在画布模板面板展示的二级分类 */
+export const HIDDEN_PUBLIC_TEMPLATE_CATEGORIES = ["美育设计"] as const;
+
+export function isHiddenPublicTemplateCategory(category: string): boolean {
+  const trimmed = typeof category === "string" ? category.trim() : "";
+  return (HIDDEN_PUBLIC_TEMPLATE_CATEGORIES as readonly string[]).includes(trimmed);
+}
+
+/** 公共模板二级分类：建筑设计置顶 */
+export const PRIORITY_PUBLIC_TEMPLATE_CATEGORIES = ["建筑设计"] as const;
 
 export function sortPublicTemplateCategories(categories: string[]): string[] {
   const unique = Array.from(
@@ -45,7 +53,8 @@ export function sortPublicTemplateCategories(categories: string[]): string[] {
       categories
         .map((c) => c?.trim())
         .filter(Boolean)
-        .filter((c) => !isTemplateParentCategory(c)) as string[],
+        .filter((c) => !isTemplateParentCategory(c))
+        .filter((c) => !isHiddenPublicTemplateCategory(c)) as string[],
     ),
   );
   const other = unique.filter((c) => c === "其他" || c === "Other");

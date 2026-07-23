@@ -21,7 +21,6 @@ import { useFlowOnboardingStore } from '@/stores/flowOnboardingStore';
 import { useCommentStore } from '@/stores/commentStore';
 import { SHOW_FLOW_ONBOARDING_TOOLBAR, SHOW_TEAM_COLLABORATION } from '@/config/featureFlags';
 import '@/components/collaboration/comment-mode.css';
-import { getStoredTemplateParentCategory } from '@/services/publicTemplateService';
 
 // 统一画板：移除 Node 模式专属按钮组件
 
@@ -448,14 +447,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
   const dispatchTemplatePanelState = React.useCallback((visible: boolean) => {
     isTogglingFromButtonRef.current = true;
-    const storedParent = getStoredTemplateParentCategory();
     const detail = visible
       ? {
           visible: true,
           tab: 'templates',
           scope: 'public',
           allowedTabs: ['templates', 'personal'],
-          ...(storedParent ? { parentCategory: storedParent } : {}),
         }
       : { visible: false };
     try { window.dispatchEvent(new CustomEvent('flow:set-template-panel', { detail })); } catch {}

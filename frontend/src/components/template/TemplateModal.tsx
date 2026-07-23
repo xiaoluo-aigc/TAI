@@ -23,6 +23,7 @@ import {
   fetchTemplateCategories,
   fetchTemplates,
   sortPublicTemplateCategories,
+  isHiddenPublicTemplateCategory,
 } from "@/services/publicTemplateService";
 import { useTranslation } from "react-i18next";
 // import { useReactFlow } from 'reactflow'; // 暂时注释，因为FloatingHeader不在ReactFlow上下文中
@@ -351,8 +352,11 @@ export default function TemplateModal({
 
   const filteredTplIndex = useMemo(() => {
     if (!tplIndex) return [];
-    if (!activeBuiltinCategory) return tplIndex;
-    return tplIndex.filter(
+    const visible = tplIndex.filter(
+      (item) => !isHiddenPublicTemplateCategory(normalizeCategory(item.category)),
+    );
+    if (!activeBuiltinCategory) return visible;
+    return visible.filter(
       (item) => normalizeCategory(item.category) === activeBuiltinCategory
     );
   }, [tplIndex, activeBuiltinCategory, normalizeCategory]);

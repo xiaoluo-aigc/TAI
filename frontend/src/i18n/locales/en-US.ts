@@ -53,6 +53,7 @@ const enUS = {
       titleSuffix: "More than AI",
       subtitle: "TAI — a next-generation intelligent creative platform focused on architecture and education, using AI to understand industries and unlock creativity.",
       startNow: "Get Inspired",
+      linglongEntry: "Linglong Exclusive Entry",
       architectureIndustry: "Architecture",
       otherIndustry: "Other Industries",
     },

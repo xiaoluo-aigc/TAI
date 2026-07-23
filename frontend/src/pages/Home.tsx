@@ -15,7 +15,6 @@ import WelcomeShaderBackground from "@/components/background/WelcomeShaderBackgr
 import EventSettingsModalHost from "@/components/home/EventSettingsModalHost";
 import MembershipModal from "@/components/home/MembershipModal";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { setStoredTemplateParentCategory } from "@/services/publicTemplateService";
 import titleImage from "@/assets/title.png";
 import logoImage from "@/assets/logo.png";
 import leftIconImage from "@/assets/left-icon.png";
@@ -176,11 +175,8 @@ const BTN_OUTLINE_GOLD_CLASS =
 const BTN_LOGIN_CLASS =
   "rounded-full bg-gradient-to-br from-blue-700 via-blue-600 to-blue-800 px-[16px] py-[4px] text-[13px] text-white shadow-[0_0_16px_rgba(37,99,235,0.35)] transition-all duration-200";
 
-const CTA_BTN_CLASS =
-  "group inline-flex items-center justify-center rounded-full border border-sky-300/35 bg-gradient-to-r from-[rgba(33,75,157,0.1)] to-[rgba(33,75,157,1)] text-white w-[120px] h-[40px] text-[16px]";
-
 const CTA_BTN_ORANGE_CLASS =
-  "group inline-flex items-center justify-center rounded-full border border-orange-300/35 bg-gradient-to-r from-[rgba(194,98,32,0.1)] to-[rgba(234,120,40,0.6)] text-white w-[120px] h-[40px] text-[16px]";
+  "group inline-flex items-center justify-center rounded-full border border-orange-300/35 bg-gradient-to-r from-[rgba(194,98,32,0.1)] to-[rgba(234,120,40,0.6)] text-white min-w-[160px] h-[40px] px-6 text-[16px]";
 
 const WeChatFloatingButton = () => {
   const { t } = useTranslation();
@@ -347,13 +343,9 @@ export default function Home() {
   const [activeSceneFilter, setActiveSceneFilter] =
     useState<SceneFilterKey>("all");
 
-  const openTemplatesWithParent = useCallback(
-    (parentCategory: "建筑" | "其他") => {
-      setStoredTemplateParentCategory(parentCategory);
-      navigate("/app");
-    },
-    [navigate],
-  );
+  const openLinglongEntry = useCallback(() => {
+    navigate("/app");
+  }, [navigate]);
 
   const featureCards = useMemo(
     () =>
@@ -640,17 +632,10 @@ export default function Home() {
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
-              onClick={() => openTemplatesWithParent("建筑")}
+              onClick={openLinglongEntry}
               className={CTA_BTN_ORANGE_CLASS}
             >
-              <span>{t("home.hero.architectureIndustry")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => openTemplatesWithParent("其他")}
-              className={CTA_BTN_CLASS}
-            >
-              <span>{t("home.hero.otherIndustry")}</span>
+              <span>{t("home.hero.linglongEntry")}</span>
             </button>
           </div>
         </div>
@@ -1030,17 +1015,10 @@ export default function Home() {
           <div className="mt-[22px] flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
-              onClick={() => openTemplatesWithParent("建筑")}
+              onClick={openLinglongEntry}
               className={CTA_BTN_ORANGE_CLASS}
             >
-              <span>{t("home.hero.architectureIndustry")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => openTemplatesWithParent("其他")}
-              className={CTA_BTN_CLASS}
-            >
-              <span>{t("home.hero.otherIndustry")}</span>
+              <span>{t("home.hero.linglongEntry")}</span>
             </button>
           </div>
         </div>

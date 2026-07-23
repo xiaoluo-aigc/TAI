@@ -52,6 +52,7 @@ const zhCN = {
       logoAlt: "探索创作之境",
       subtitle: "TAI 新一代智能聚合创意平台，深耕建筑与教育领域，用AI理解行业、释放创造力。",
       startNow: "灵感开启",
+      linglongEntry: "玲珑专属入口",
       architectureIndustry: "建筑设计",
       otherIndustry: "其他创意",
     },

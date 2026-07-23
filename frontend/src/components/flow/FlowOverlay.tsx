@@ -3,7 +3,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { Trash2, Plus, Upload, Download, Group, Ungroup, Lock, Crown, Copy, ClipboardPaste } from "lucide-react";
-import { fetchTemplateCategories, fetchPublicTemplateIndex, sortPublicTemplateCategories, getStoredTemplateParentCategory, setStoredTemplateParentCategory, type TemplateParentCategory } from "@/services/publicTemplateService";
+import { fetchTemplateCategories, fetchPublicTemplateIndex, sortPublicTemplateCategories, isHiddenPublicTemplateCategory } from "@/services/publicTemplateService";
 import { fetchWithAuth } from "@/services/authFetch";
 import SharedTemplateCard from "@/components/template/SharedTemplateCard";
 import SmartImage from "@/components/ui/SmartImage";
@@ -6958,10 +6958,6 @@ function FlowInner() {
   // 单选分类：仅允许选择一个内置分类，空字符串表示未筛选（显示全部）
   const [activeBuiltinCategory, setActiveBuiltinCategory] =
     React.useState<string>("");
-  const [templateParentCategory, setTemplateParentCategory] =
-    React.useState<TemplateParentCategory | "">(
-      () => getStoredTemplateParentCategory() ?? "",
-    );
   const normalizeTemplateCategory = React.useCallback((value?: string | null) => {
     const raw = typeof value === "string" ? value.trim() : "";
     if (!raw) return "其他";
@@ -7165,15 +7161,7 @@ function FlowInner() {
         detail.scope === "public" || detail.scope === "mine"
           ? detail.scope
           : undefined;
-      const parentCategory: TemplateParentCategory | "" =
-        detail.parentCategory === "建筑" || detail.parentCategory === "其他"
-          ? detail.parentCategory
-          : getStoredTemplateParentCategory() ?? "";
-      if (detail.parentCategory === "建筑" || detail.parentCategory === "其他") {
-        setStoredTemplateParentCategory(detail.parentCategory);
-      }
       if (shouldOpen) {
-        setTemplateParentCategory(parentCategory);
         setActiveBuiltinCategory("");
         setTplIndex(null);
       }
@@ -8364,13 +8352,13 @@ function FlowInner() {
     (async () => {
       setTplLoading(true);
       try {
-        const idx = await fetchPublicTemplateIndex(
-          templateParentCategory || undefined,
-        );
-        const normalizedIdx = idx.map((item) => ({
-          ...item,
-          category: normalizeTemplateCategory(item.category),
-        }));
+        const idx = await fetchPublicTemplateIndex();
+        const normalizedIdx = idx
+          .map((item) => ({
+            ...item,
+            category: normalizeTemplateCategory(item.category),
+          }))
+          .filter((item) => !isHiddenPublicTemplateCategory(item.category));
         if (!cancelled) {
           setTplIndex(normalizedIdx);
         }
@@ -8383,16 +8371,14 @@ function FlowInner() {
     return () => {
       cancelled = true;
     };
-  }, [addPanel.visible, addTab, normalizeTemplateCategory, templateParentCategory]);
+  }, [addPanel.visible, addTab, normalizeTemplateCategory]);
 
   React.useEffect(() => {
     if (!addPanel.visible || addTab !== "templates") return;
     let cancelled = false;
     (async () => {
       try {
-        const cats = await fetchTemplateCategories(
-          templateParentCategory || undefined,
-        );
+        const cats = await fetchTemplateCategories();
         if (!cancelled && Array.isArray(cats) && cats.length) {
           setBuiltinCategories(
             sortPublicTemplateCategories(
@@ -8431,7 +8417,7 @@ function FlowInner() {
     return () => {
       cancelled = true;
     };
-  }, [addPanel.visible, addTab, tplIndex, normalizeTemplateCategory, templateParentCategory]);
+  }, [addPanel.visible, addTab, tplIndex, normalizeTemplateCategory]);
 
   // 捕获原生点击，通过自定义检测实现双击（300ms 间隔），仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
   React.useEffect(() => {
